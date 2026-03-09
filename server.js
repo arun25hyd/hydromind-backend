@@ -6,20 +6,21 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ── CORS: Allow your Vercel frontend domain ──────────────────────────────────
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:5173",
-  process.env.FRONTEND_URL, // set this in Render environment variables
-];
-
+// ── CORS: Allow all Vercel URLs + custom domain ──────────────────────────────
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    // Allow all Vercel preview + production URLs
+    if (
+      origin.endsWith(".vercel.app") ||
+      origin === process.env.FRONTEND_URL ||
+      origin === "http://localhost:3000" ||
+      origin === "http://localhost:5173"
+    ) {
+      return callback(null, true);
     }
+    callback(new Error("Not allowed by CORS"));
   }
 }));
 
