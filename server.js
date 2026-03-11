@@ -83,7 +83,7 @@ app.post("/api/chat", async (req, res) => {
   try {
     const { model, max_tokens, system, messages, tools } = req.body;
     if (!messages) return res.status(400).json({ error: "messages required" });
-    const body = { model: model || "claude-sonnet-4-5", max_tokens: max_tokens || 1000, messages };
+    const body = { model: model || "claude-sonnet-4-5-20250514", max_tokens: max_tokens || 1000, messages };
     if (system) body.system = system;
     if (tools) body.tools = tools;
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -100,6 +100,69 @@ app.post("/api/chat", async (req, res) => {
     if (!response.ok) return res.status(response.status).json({ error: data });
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// NEWS ENDPOINT — web search for hydraulic industry news with image scraping
+// ══════════════════════════════════════════════════════════════════════════
+app.get("/api/news", async (req, res) => {
+  try {
+    const newsPrompt = `Search hpmag.co.uk and hydraulicspneumatics.com for the 6 most recent hydraulic industry news articles published in 2025 or 2026. For each article include the direct URL and any image URL found.
+Return ONLY a JSON array, no markdown, no extra text:
+[{"title":"article headline","source":"hpmag.co.uk","url":"https://full-url","date":"DD Mon YYYY","summary":"2 sentence technical summary","tag":"PUMPS","image":"https://image-url-or-empty"}]
+Tags must be one of: PUMPS VALVES SEALS CONTROLS FILTRATION INDUSTRY`;
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "web-search-2025-03-05",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5-20250514",
+        max_tokens: 2000,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: newsPrompt }]
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) return res.status(response.status).json({ error: data });
+
+    // Extract text from ALL content blocks — web_search returns mixed types
+    let fullText = "";
+    if (Array.isArray(data.content)) {
+      for (const block of data.content) {
+        if (block.type === "text") fullText += block.text;
+        // tool_result blocks may contain text too
+        if (block.type === "tool_result" && Array.isArray(block.content)) {
+          for (const inner of block.content) {
+            if (inner.type === "text") fullText += inner.text;
+          }
+        }
+      }
+    }
+
+    // Extract JSON array from response
+    const clean = fullText.replace(/```json|```/g, "").trim();
+    const match = clean.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (match) {
+      try {
+        const articles = JSON.parse(match[0]);
+        if (Array.isArray(articles) && articles.length > 0) {
+          return res.json({ articles });
+        }
+      } catch (e) { /* fall through to fallback */ }
+    }
+
+    // Fallback: return raw text so frontend can debug
+    res.json({ articles: [], raw: fullText.substring(0, 500) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -126,7 +189,7 @@ async function getEmbedding(text) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-4-5-20250514",
       max_tokens: 100,
       system: "Return ONLY a JSON array of 384 numbers between -1 and 1 representing the semantic embedding of the input text. No explanation, no markdown.",
       messages: [{ role: "user", content: `Embed this text: "${text.substring(0, 1000)}"` }]
@@ -268,7 +331,7 @@ app.post("/api/kb/chat", async (req, res) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
+        model: "claude-sonnet-4-5-20250514",
         max_tokens: 1200,
         system: enhancedSystem,
         messages
@@ -289,3 +352,14 @@ app.post("/api/kb/chat", async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
+
+// ── KEEP-ALIVE: ping self every 14 minutes to prevent Render sleep ─────────
+const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+setInterval(async () => {
+  try {
+    await fetch(`${SELF_URL}/`);
+    console.log("Keep-alive ping sent");
+  } catch (e) {
+    console.log("Keep-alive ping failed:", e.message);
+  }
+}, 14 * 60 * 1000); // every 14 minutes
