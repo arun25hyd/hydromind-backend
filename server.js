@@ -83,7 +83,7 @@ app.post("/api/chat", async (req, res) => {
   try {
     const { model, max_tokens, system, messages, tools } = req.body;
     if (!messages) return res.status(400).json({ error: "messages required" });
-    const body = { model: model || "claude-sonnet-4-5-20250514", max_tokens: max_tokens || 1000, messages };
+    const body = { model: model || "claude-sonnet-4-5", max_tokens: max_tokens || 1000, messages };
     if (system) body.system = system;
     if (tools) body.tools = tools;
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -122,7 +122,7 @@ Tags must be one of: PUMPS VALVES SEALS CONTROLS FILTRATION INDUSTRY`;
         "anthropic-beta": "web-search-2025-03-05",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5-20250514",
+        model: "claude-sonnet-4-5",
         max_tokens: 2000,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: [{ role: "user", content: newsPrompt }]
@@ -165,6 +165,114 @@ Tags must be one of: PUMPS VALVES SEALS CONTROLS FILTRATION INDUSTRY`;
   }
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// PASSWORD RESET — send reset link via Supabase Auth email
+// ══════════════════════════════════════════════════════════════════════════
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email required" });
+
+    // Check user exists
+    const { data: users } = await supabase
+      .from("users")
+      .select("id, email")
+      .eq("email", email.toLowerCase().trim())
+      .limit(1);
+
+    if (!users || users.length === 0) {
+      // Don't reveal if email exists — security best practice
+      return res.json({ success: true, message: "If this email is registered, a reset link has been sent." });
+    }
+
+    // Generate a reset token (random hex, expires 1 hour)
+    const crypto = require("crypto");
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    // Store token in users table (add reset_token, reset_expires columns if not exist)
+    await supabase.from("users").update({
+      reset_token: resetToken,
+      reset_expires: expires
+    }).eq("email", email.toLowerCase().trim());
+
+    // Build reset link pointing to frontend
+    const frontendUrl = process.env.FRONTEND_URL || "https://hydromind-frontend.vercel.app";
+    const resetLink = `${frontendUrl}?reset=${resetToken}`;
+
+    // Send email via Supabase (uses your Supabase SMTP settings)
+    // Using Resend/SMTP via fetch — simple approach using EmailJS-style API
+    // We'll use a simple mailto approach via Supabase's built-in email
+    const emailRes = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.RESEND_API_KEY || ""}`
+      },
+      body: JSON.stringify({
+        from: "HydroMind AI <noreply@hydromindai.com>",
+        to: [email],
+        subject: "HydroMind AI — Password Reset",
+        html: `
+          <div style="font-family:monospace;background:#020510;color:#d0e8ff;padding:32px;max-width:480px;margin:0 auto;border:1px solid #0f2244;border-radius:4px;">
+            <h2 style="color:#00ccff;letter-spacing:0.1em;">HYDRO<span style="color:#fff">MIND</span> AI</h2>
+            <p>You requested a password reset for your HydroMind AI account.</p>
+            <p>Click the button below to reset your password. This link expires in <strong>1 hour</strong>.</p>
+            <a href="${resetLink}" style="display:inline-block;background:#00ccff;color:#000;padding:12px 28px;border-radius:3px;text-decoration:none;font-weight:bold;letter-spacing:0.1em;margin:16px 0;">RESET PASSWORD</a>
+            <p style="color:#4a7aaa;font-size:0.85em;">If you did not request this, ignore this email. Your password will not change.</p>
+            <p style="color:#4a7aaa;font-size:0.85em;">Link: ${resetLink}</p>
+          </div>
+        `
+      })
+    });
+
+    if (!emailRes.ok && process.env.RESEND_API_KEY) {
+      console.error("Email send failed:", await emailRes.text());
+    }
+
+    res.json({ success: true, message: "If this email is registered, a reset link has been sent." });
+  } catch (e) {
+    console.error("Forgot password error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) return res.status(400).json({ error: "Token and new password required" });
+    if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+    // Find user with this token
+    const { data: users } = await supabase
+      .from("users")
+      .select("id, email, reset_expires")
+      .eq("reset_token", token)
+      .limit(1);
+
+    if (!users || users.length === 0) return res.status(400).json({ error: "Invalid or expired reset link" });
+
+    const user = users[0];
+    if (new Date(user.reset_expires) < new Date()) {
+      return res.status(400).json({ error: "Reset link has expired. Please request a new one." });
+    }
+
+    // Hash new password and clear token
+    const bcrypt = require("bcryptjs");
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await supabase.from("users").update({
+      password_hash: hashed,
+      reset_token: null,
+      reset_expires: null
+    }).eq("id", user.id);
+
+    res.json({ success: true, message: "Password reset successfully. You can now sign in." });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════════════════════════════════
@@ -189,7 +297,7 @@ async function getEmbedding(text) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5-20250514",
+      model: "claude-sonnet-4-5",
       max_tokens: 100,
       system: "Return ONLY a JSON array of 384 numbers between -1 and 1 representing the semantic embedding of the input text. No explanation, no markdown.",
       messages: [{ role: "user", content: `Embed this text: "${text.substring(0, 1000)}"` }]
@@ -331,7 +439,7 @@ app.post("/api/kb/chat", async (req, res) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5-20250514",
+        model: "claude-sonnet-4-5",
         max_tokens: 1200,
         system: enhancedSystem,
         messages
