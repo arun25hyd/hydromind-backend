@@ -478,7 +478,7 @@ async function triggerKbSync(docId, docName, record) {
   try {
     let sampleText = record.content || '';
     if (!sampleText) {
-      const url = `${process.env.SUPABASE_URL}/rest/v1/document_chunks?document_id=eq.${docId}&select=chunk_text&limit=5`;
+      const url = `${process.env.SUPABASE_URL}/rest/v1/kb_chunks?document_id=eq.${docId}&select=chunk_text&limit=5`;
       const r = await fetch(url, { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` }});
       const rows = await r.json();
       sampleText = Array.isArray(rows) ? rows.map(c => c.chunk_text || '').join('\n\n') : '';
