@@ -481,7 +481,7 @@ async function triggerKbSync(docId, docName, record) {
       const url = `${process.env.SUPABASE_URL}/rest/v1/kb_chunks?document_id=eq.${docId}&select=chunk_text&limit=5`;
       const r = await fetch(url, { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` }});
       const rows = await r.json();
-      sampleText = Array.isArray(rows) ? rows.map(c => c.chunk_text || '').join('\n\n') : '';
+      sampleText = Array.isArray(rows) ? rows.map(c => c.content_text || '').join('\n\n') : '';
     }
     if (!sampleText) { console.log(`[KB-SYNC] No content for '${docName}'`); return; }
 
