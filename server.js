@@ -489,8 +489,11 @@ async function triggerKbSync(docId, docName, record) {
       sampleText = Array.isArray(rows) ? rows.map(function(c) { return c.content || ''; }).join('\n\n') : '';
     }
     if (!sampleText) {
-      console.log('[KB-SYNC] No content for ' + docName);
-      return;
+console.log('[KB-SYNC] No content for ' + docName + ' - checking chunks table');
+return;
+}
+console.log('[KB-SYNC] Got content, length: ' + sampleText.length + ' chars');
+console.log('[KB-SYNC] Calling Claude API for KB' + kbNumber);
     }
     var numUrl = process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries?select=kb_number&order=kb_number.desc&limit=1';
     var numRes = await fetch(numUrl, {
@@ -511,12 +514,15 @@ async function triggerKbSync(docId, docName, record) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 500,
         messages: [{ role: 'user', content: prompt }]
       })
     });
+ // logging below
     var aiData = await aiRes.json();
+  console.log('[KB-SYNC] Claude status: ' + aiRes.status);
+console.log('[KB-SYNC] Claude data: ' + JSON.stringify(aiData));
     var kbEntry = aiData && aiData.content ? aiData.content.map(function(b) { return b.text || ''; }).join('').trim() : '';
     if (!kbEntry) { console.error('[KB-SYNC] Claude returned empty'); return; }
     await fetch(process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries', {
@@ -537,7 +543,9 @@ async function triggerKbSync(docId, docName, record) {
     });
     console.log('[KB-SYNC] KB' + kbNumber + ' stored for ' + docName);
   } catch (err) {
-    console.error('[KB-SYNC] Error: ' + err.message);
+    console.error('[KB-SYNC] Error name: ' + err.name);
+console.error('[KB-SYNC] Error message: ' + err.message);
+console.error('[KB-SYNC] Error stack: ' + err.stack);
   }
 }
 // End KB Upload Webhook
