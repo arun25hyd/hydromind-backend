@@ -459,43 +459,88 @@ app.post("/api/kb/chat", async (req, res) => {
   }
 });
 
-// ─── HydroMind KB Upload Webhook ───────────────────────────────
+// HydroMind KB Upload Webhook
 app.post('/webhook/kb-upload', async (req, res) => {
   const secret = req.headers['x-webhook-secret'];
   if (process.env.WEBHOOK_SECRET && secret !== process.env.WEBHOOK_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const record = req.body?.record || {};
-  const docId  = record.id;
-  const docName = record.name || `Document_${docId}`;
+  const record = req.body && req.body.record ? req.body.record : {};
+  const docId = record.id;
+  const docName = record.name || ('Document_' + docId);
   if (!docId) return res.status(400).json({ error: 'No document record' });
-  console.log(`[KB-SYNC] Webhook received — '${docName}' (id=${docId})`);
+  console.log('[KB-SYNC] Webhook received: ' + docName);
   res.json({ status: 'accepted', document: docName });
-  setImmediate(() => triggerKbSync(docId, docName, record));
+  setImmediate(function() { triggerKbSync(docId, docName, record); });
 });
 
 async function triggerKbSync(docId, docName, record) {
   try {
-    let sampleText = record.content || '';
+    var sampleText = record.content || '';
     if (!sampleText) {
-      const url = `${process.env.SUPABASE_URL}/rest/v1/kb_chunks?document_id=eq.${docId}&select=chunk_text&limit=5`;
-      const r = await fetch(url, { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` }});
-      const rows = await r.json();
-      sampleText = Array.isArray(rows) ? rows.map(c => c.content || '').join('\n\n') : '';
+      var chunkUrl = process.env.SUPABASE_URL + '/rest/v1/kb_chunks?doc_id=eq.' + docId + '&select=content&limit=5';
+      var chunkRes = await fetch(chunkUrl, {
+        headers: {
+          'apikey': process.env.SUPABASE_SERVICE_KEY,
+          'Authorization': 'Bearer ' + process.env.SUPABASE_SERVICE_KEY
+        }
+      });
+      var rows = await chunkRes.json();
+      sampleText = Array.isArray(rows) ? rows.map(function(c) { return c.content || ''; }).join('\n\n') : '';
     }
-    if (!sampleText) { console.log(`[KB-SYNC] No content for '${docName}'`); return; }
-
-    const numUrl = `${process.env.SUPABASE_URL}/rest/v1/kb_skill_entries?select=kb_number&order=kb_number.desc&limit=1`;
-    const numR = await fetch(numUrl, { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` }});
-    const numRows = await numR.json();
-    const kbNumber = Array.isArray(numRows) && numRows.length > 0 ? numRows[0].kb_number + 1 : 34;
-
-    const today = new Date().toISOString().split('T')[0];
-    const prompt = `You are a technical writer for HydroMind AI hydraulic systems platform.\nNew document: ${docName}\nKB Number: KB${kbNumber}\nSample:\n---\n${sampleText.slice(0, 2500)}\n---\nGenerate ONLY this block:\n**KB${kbNumber} — [title]**\n- Document: ${docName}\n- Covers: [component types, models]\n- Key data: [4-6 technical values]\n- Applicable to: [crane/equipment types]\n- Cross-reference: [related KB numbers or None]\n- Indexed: ${today}\nMax 10 lines. No preamble.`;
-
-    const aiR = await fetch('https://api.anthropic.com/v1/messages', {
+    if (!sampleText) {
+      console.log('[KB-SYNC] No content for ' + docName);
+      return;
+    }
+    var numUrl = process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries?select=kb_number&order=kb_number.desc&limit=1';
+    var numRes = await fetch(numUrl, {
+      headers: {
+        'apikey': process.env.SUPABASE_SERVICE_KEY,
+        'Authorization': 'Bearer ' + process.env.SUPABASE_SERVICE_KEY
+      }
+    });
+    var numRows = await numRes.json();
+    var kbNumber = Array.isArray(numRows) && numRows.length > 0 ? numRows[0].kb_number + 1 : 34;
+    var today = new Date().toISOString().split('T')[0];
+    var prompt = 'You are a technical writer for HydroMind AI hydraulic systems platform.\nNew document: ' + docName + '\nKB Number: KB' + kbNumber + '\nSample:\n---\n' + sampleText.slice(0, 2500) + '\n---\nGenerate ONLY this block:\n**KB' + kbNumber + ' - [title]**\n- Document: ' + docName + '\n- Covers: [component types, models]\n- Key data: [4-6 technical values]\n- Applicable to: [crane/equipment types]\n- Cross-reference: [related KB numbers or None]\n- Indexed: ' + today + '\nMax 10 lines. No preamble.';
+    var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'x
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    var aiData = await aiRes.json();
+    var kbEntry = aiData && aiData.content ? aiData.content.map(function(b) { return b.text || ''; }).join('').trim() : '';
+    if (!kbEntry) { console.error('[KB-SYNC] Claude returned empty'); return; }
+    await fetch(process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries', {
+      method: 'POST',
+      headers: {
+        'apikey': process.env.SUPABASE_SERVICE_KEY,
+        'Authorization': 'Bearer ' + process.env.SUPABASE_SERVICE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        document_id: docId,
+        document_name: docName,
+        kb_number: kbNumber,
+        skill_entry: kbEntry,
+        status: 'pending'
+      })
+    });
+    console.log('[KB-SYNC] KB' + kbNumber + ' stored for ' + docName);
+  } catch (err) {
+    console.error('[KB-SYNC] Error: ' + err.message);
+  }
+}
+// End KB Upload Webhook
 
 app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
 
