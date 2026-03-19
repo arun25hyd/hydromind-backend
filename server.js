@@ -460,24 +460,32 @@ app.post("/api/kb/chat", async (req, res) => {
 });
 
 // HydroMind KB Upload Webhook
-app.post('/webhook/kb-upload', async (req, res) => {
-  const secret = req.headers['x-webhook-secret'];
-  if (process.env.WEBHOOK_SECRET && secret !== process.env.WEBHOOK_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized' });
+app.post('/webhook/kb-upload', async function(req, res) {
+  try {
+    var secret = req.headers['x-webhook-secret'];
+    if (process.env.WEBHOOK_SECRET && secret !== process.env.WEBHOOK_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    var record = (req.body && req.body.record) ? req.body.record : {};
+    var docId = record.id;
+    var docName = record.name ? record.name : ('Document_' + docId);
+    if (!docId) { return res.status(400).json({ error: 'No document record' }); }
+    console.log('[KB-SYNC] Received: ' + docName);
+    res.json({ status: 'accepted', document: docName });
+    setImmediate(function() { triggerKbSync(docId, docName, record); });
+  } catch(e) {
+    console.error('[KB-SYNC] Route error: ' + e.message);
+    res.status(500).json({ error: e.message });
   }
-  const record = req.body && req.body.record ? req.body.record : {};
-  const docId = record.id;
-  const docName = record.name || ('Document_' + docId);
-  if (!docId) return res.status(400).json({ error: 'No document record' });
-  console.log('[KB-SYNC] Webhook received: ' + docName);
-  res.json({ status: 'accepted', document: docName });
-  setImmediate(function() { triggerKbSync(docId, docName, record); });
 });
 
 async function triggerKbSync(docId, docName, record) {
   try {
-    var sampleText = record.content || '';
+    console.log('[KB-SYNC] Starting sync for: ' + docName);
+    var sampleText = record.content ? record.content : '';
+
     if (!sampleText) {
+      console.log('[KB-SYNC] Fetching chunks for doc: ' + docId);
       var chunkUrl = process.env.SUPABASE_URL + '/rest/v1/kb_chunks?doc_id=eq.' + docId + '&select=content&limit=5';
       var chunkRes = await fetch(chunkUrl, {
         headers: {
@@ -485,16 +493,17 @@ async function triggerKbSync(docId, docName, record) {
           'Authorization': 'Bearer ' + process.env.SUPABASE_SERVICE_KEY
         }
       });
-      var rows = await chunkRes.json();
-      sampleText = Array.isArray(rows) ? rows.map(function(c) { return c.content || ''; }).join('\n\n') : '';
+      var chunkRows = await chunkRes.json();
+      console.log('[KB-SYNC] Chunk fetch status: ' + chunkRes.status);
+      sampleText = Array.isArray(chunkRows) ? chunkRows.map(function(c) { return c.content ? c.content : ''; }).join('\n\n') : '';
     }
+
     if (!sampleText) {
-console.log('[KB-SYNC] No content for ' + docName + ' - checking chunks table');
-return;
-}
-console.log('[KB-SYNC] Got content, length: ' + sampleText.length + ' chars');
-console.log('[KB-SYNC] Calling Claude API for KB' + kbNumber);
+      console.log('[KB-SYNC] No content found for: ' + docName);
+      return;
     }
+    console.log('[KB-SYNC] Content length: ' + sampleText.length);
+
     var numUrl = process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries?select=kb_number&order=kb_number.desc&limit=1';
     var numRes = await fetch(numUrl, {
       headers: {
@@ -503,9 +512,25 @@ console.log('[KB-SYNC] Calling Claude API for KB' + kbNumber);
       }
     });
     var numRows = await numRes.json();
-    var kbNumber = Array.isArray(numRows) && numRows.length > 0 ? numRows[0].kb_number + 1 : 34;
+    var kbNumber = (Array.isArray(numRows) && numRows.length > 0) ? (numRows[0].kb_number + 1) : 34;
+    console.log('[KB-SYNC] Assigned KB number: ' + kbNumber);
+
     var today = new Date().toISOString().split('T')[0];
-    var prompt = 'You are a technical writer for HydroMind AI hydraulic systems platform.\nNew document: ' + docName + '\nKB Number: KB' + kbNumber + '\nSample:\n---\n' + sampleText.slice(0, 2500) + '\n---\nGenerate ONLY this block:\n**KB' + kbNumber + ' - [title]**\n- Document: ' + docName + '\n- Covers: [component types, models]\n- Key data: [4-6 technical values]\n- Applicable to: [crane/equipment types]\n- Cross-reference: [related KB numbers or None]\n- Indexed: ' + today + '\nMax 10 lines. No preamble.';
+    var promptText = 'You are a technical writer for HydroMind AI hydraulic systems platform.\n';
+    promptText += 'New document: ' + docName + '\n';
+    promptText += 'KB Number: KB' + kbNumber + '\n';
+    promptText += 'Sample content:\n---\n' + sampleText.slice(0, 2500) + '\n---\n';
+    promptText += 'Generate ONLY this structured block, no preamble:\n';
+    promptText += '**KB' + kbNumber + ' - [Short title]**\n';
+    promptText += '- Document: ' + docName + '\n';
+    promptText += '- Covers: [component types, models]\n';
+    promptText += '- Key data: [4-6 technical values]\n';
+    promptText += '- Applicable to: [crane/equipment types]\n';
+    promptText += '- Cross-reference: [related KB numbers or None]\n';
+    promptText += '- Indexed: ' + today + '\n';
+    promptText += 'Maximum 10 lines.';
+
+    console.log('[KB-SYNC] Calling Claude API...');
     var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -516,16 +541,26 @@ console.log('[KB-SYNC] Calling Claude API for KB' + kbNumber);
       body: JSON.stringify({
         model: 'claude-sonnet-4-5',
         max_tokens: 500,
-        messages: [{ role: 'user', content: prompt }]
+        messages: [{ role: 'user', content: promptText }]
       })
     });
- // logging below
+
+    console.log('[KB-SYNC] Claude API status: ' + aiRes.status);
     var aiData = await aiRes.json();
-  console.log('[KB-SYNC] Claude status: ' + aiRes.status);
-console.log('[KB-SYNC] Claude data: ' + JSON.stringify(aiData));
-    var kbEntry = aiData && aiData.content ? aiData.content.map(function(b) { return b.text || ''; }).join('').trim() : '';
-    if (!kbEntry) { console.error('[KB-SYNC] Claude returned empty'); return; }
-    await fetch(process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries', {
+    console.log('[KB-SYNC] Claude response: ' + JSON.stringify(aiData));
+
+    var kbEntry = '';
+    if (aiData && aiData.content) {
+      kbEntry = aiData.content.map(function(b) { return b.text ? b.text : ''; }).join('').trim();
+    }
+
+    if (!kbEntry) {
+      console.error('[KB-SYNC] Empty KB entry from Claude');
+      return;
+    }
+    console.log('[KB-SYNC] KB entry generated, storing in Supabase...');
+
+    var storeRes = await fetch(process.env.SUPABASE_URL + '/rest/v1/kb_skill_entries', {
       method: 'POST',
       headers: {
         'apikey': process.env.SUPABASE_SERVICE_KEY,
@@ -541,11 +576,12 @@ console.log('[KB-SYNC] Claude data: ' + JSON.stringify(aiData));
         status: 'pending'
       })
     });
-    console.log('[KB-SYNC] KB' + kbNumber + ' stored for ' + docName);
-  } catch (err) {
-    console.error('[KB-SYNC] Error name: ' + err.name);
-console.error('[KB-SYNC] Error message: ' + err.message);
-console.error('[KB-SYNC] Error stack: ' + err.stack);
+    console.log('[KB-SYNC] Supabase store status: ' + storeRes.status);
+    console.log('[KB-SYNC] KB' + kbNumber + ' successfully stored for: ' + docName);
+
+  } catch(err) {
+    console.error('[KB-SYNC] triggerKbSync error: ' + err.message);
+    console.error('[KB-SYNC] Stack: ' + err.stack);
   }
 }
 // End KB Upload Webhook
