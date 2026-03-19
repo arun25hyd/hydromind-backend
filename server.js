@@ -459,6 +459,44 @@ app.post("/api/kb/chat", async (req, res) => {
   }
 });
 
+// ─── HydroMind KB Upload Webhook ───────────────────────────────
+app.post('/webhook/kb-upload', async (req, res) => {
+  const secret = req.headers['x-webhook-secret'];
+  if (process.env.WEBHOOK_SECRET && secret !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const record = req.body?.record || {};
+  const docId  = record.id;
+  const docName = record.name || `Document_${docId}`;
+  if (!docId) return res.status(400).json({ error: 'No document record' });
+  console.log(`[KB-SYNC] Webhook received — '${docName}' (id=${docId})`);
+  res.json({ status: 'accepted', document: docName });
+  setImmediate(() => triggerKbSync(docId, docName, record));
+});
+
+async function triggerKbSync(docId, docName, record) {
+  try {
+    let sampleText = record.content || '';
+    if (!sampleText) {
+      const url = `${process.env.SUPABASE_URL}/rest/v1/document_chunks?document_id=eq.${docId}&select=chunk_text&limit=5`;
+      const r = await fetch(url, { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` }});
+      const rows = await r.json();
+      sampleText = Array.isArray(rows) ? rows.map(c => c.chunk_text || '').join('\n\n') : '';
+    }
+    if (!sampleText) { console.log(`[KB-SYNC] No content for '${docName}'`); return; }
+
+    const numUrl = `${process.env.SUPABASE_URL}/rest/v1/kb_skill_entries?select=kb_number&order=kb_number.desc&limit=1`;
+    const numR = await fetch(numUrl, { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` }});
+    const numRows = await numR.json();
+    const kbNumber = Array.isArray(numRows) && numRows.length > 0 ? numRows[0].kb_number + 1 : 34;
+
+    const today = new Date().toISOString().split('T')[0];
+    const prompt = `You are a technical writer for HydroMind AI hydraulic systems platform.\nNew document: ${docName}\nKB Number: KB${kbNumber}\nSample:\n---\n${sampleText.slice(0, 2500)}\n---\nGenerate ONLY this block:\n**KB${kbNumber} — [title]**\n- Document: ${docName}\n- Covers: [component types, models]\n- Key data: [4-6 technical values]\n- Applicable to: [crane/equipment types]\n- Cross-reference: [related KB numbers or None]\n- Indexed: ${today}\nMax 10 lines. No preamble.`;
+
+    const aiR = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x
+
 app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
 
 // ── KEEP-ALIVE: ping self every 14 minutes to prevent Render sleep ─────────
