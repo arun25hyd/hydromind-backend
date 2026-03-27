@@ -318,25 +318,34 @@ async function getEmbedding(text) {
 // ── INTERNAL KB SEARCH (no localhost call) ────────────────────────────────
 async function searchKBInternal(question, topK = 5) {
   try {
-    const qEmbed = await getEmbedding(question);
     const { data: chunks, error } = await supabase
       .from("kb_chunks")
       .select("id, doc_name, category, content, embedding");
     if (error || !chunks || chunks.length === 0) return { chunks: [], found: false };
+
+    const qWords = question.toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .split(/\s+/)
+      .filter(w => w.length > 2);
+
     const scored = chunks.map(chunk => {
-      try {
-        const vec = JSON.parse(chunk.embedding);
-        let dot = 0, magA = 0, magB = 0;
-        for (let i = 0; i < vec.length; i++) {
-          dot += (qEmbed[i] || 0) * vec[i];
-          magA += (qEmbed[i] || 0) ** 2;
-          magB += vec[i] ** 2;
-        }
-        const sim = dot / (Math.sqrt(magA) * Math.sqrt(magB) || 1);
-        return { ...chunk, score: sim };
-      } catch { return { ...chunk, score: 0 }; }
+      const text = (chunk.content || "").toLowerCase();
+      const title = (chunk.doc_name || "").toLowerCase();
+      let score = 0;
+      for (const word of qWords) {
+        const inContent = (text.match(new RegExp(word, "g")) || []).length;
+        const inTitle = (title.match(new RegExp(word, "g")) || []).length;
+        score += inContent * 1 + inTitle * 3;
+      }
+      return { ...chunk, score };
     });
-    const top = scored.sort((a, b) => b.score - a.score).slice(0, topK).filter(c => c.score > 0.3);
+
+    const top = scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+      .filter(c => c.score > 0);
+
+    console.log(`KB keyword search: "${question.slice(0,50)}" — chunks found: ${top.length}, top score: ${top[0]?.score || 0}`);
     return { chunks: top, found: top.length > 0 };
   } catch (e) {
     console.error("searchKBInternal error:", e.message);
