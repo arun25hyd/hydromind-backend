@@ -490,106 +490,190 @@ app.post("/api/kb/search", async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// KB-ENHANCED CHAT — FIXED: uses internal function, no localhost call
+// DEEP-THINK QUERY CLASSIFIER
+// Before searching KB, classify EXACTLY what the user wants
 // ══════════════════════════════════════════════════════════════════════════
-// ── SCHEMATIC INTENT DETECTION ─────────────────────────────────────────────
-// Keywords that mean the user explicitly wants visual/circuit output
-const SCHEMATIC_INTENT_STRONG = [
-  'show me','show schematic','show circuit','show diagram','show page','show drawing',
-  'display schematic','display circuit','display diagram',
-  'schematic for','circuit for','diagram for','drawing of',
-  'all pages','all schematics','full manual','manual pages',
-  'hydraulic circuit','wiring diagram','circuit diagram','circuit schematic',
-  'pipe diagram','piping diagram','block diagram','layout diagram',
-];
-// Keywords that suggest a schematic would be helpful alongside text
-const SCHEMATIC_INTENT_CONTEXT = [
-  'explain.*circuit','describe.*circuit','how does.*circuit','circuit.*work',
-  'explain.*schematic','with diagram','with schematic','with drawing',
-  'visual.*explain','explain.*visual','illustrate','illustration',
+
+// Datasheet request — user wants the technical spec document for a component
+const DATASHEET_PATTERNS = [
+  'datasheet','data sheet','spec sheet','technical data','specifications',
+  'show me.*pump','show me.*motor','show me.*valve','show me.*manual',
+  'pump manual','motor manual','valve manual','show.*catalog',
+  'show.*document','open.*manual','show.*reference',
 ];
 
-function detectSchematicIntent(question) {
+// Circuit/schematic request — user wants the hydraulic circuit drawing
+const CIRCUIT_PATTERNS = [
+  'circuit schematic','hydraulic circuit','circuit diagram','schematic diagram',
+  'show circuit','show schematic','show diagram','show drawing','show wiring',
+  'circuit for','schematic for','diagram for','wiring diagram',
+  'hoist circuit','slew circuit','luffing circuit','HPU circuit',
+  'closed loop circuit','open loop circuit','control circuit',
+  'pilot circuit','brake circuit','load holding circuit',
+];
+
+// Full manual pages request
+const PAGES_PATTERNS = [
+  'all pages','full manual','every page','complete manual','entire manual',
+  'all schematics','show all','manual pages','show pages',
+];
+
+// Context/explanation with visual support
+const CONTEXT_PATTERNS = [
+  'explain.*circuit','describe.*circuit','how does.*circuit','circuit.*work',
+  'explain.*schematic','with diagram','with schematic','with drawing',
+  'how.*works','explain.*system','describe.*system',
+];
+
+function classifyQuery(question) {
   const q = question.toLowerCase();
-  // Strong intent — user is explicitly asking for visual
-  for (const kw of SCHEMATIC_INTENT_STRONG) {
-    if (q.includes(kw)) return 'visual';
-  }
-  // Contextual intent — text answer with supporting schematic
-  for (const pattern of SCHEMATIC_INTENT_CONTEXT) {
-    if (new RegExp(pattern).test(q)) return 'context';
-  }
-  // Default — text only, no schematics
-  return 'text';
+
+  // Pages = most explicit — user wants the whole document
+  for (const p of PAGES_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'pages', limit:12 }; }
+
+  // Circuit = wants the hydraulic circuit drawing specifically
+  for (const p of CIRCUIT_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'circuit', limit:3 }; }
+
+  // Datasheet = wants the component spec document
+  for (const p of DATASHEET_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'datasheet', limit:4 }; }
+
+  // Context = explanation with optional visual support
+  for (const p of CONTEXT_PATTERNS) { if (new RegExp(p).test(q)) return { mode:'context', docType:'explain', limit:3 }; }
+
+  // Default = text answer only
+  return { mode:'text', docType:'answer', limit:0 };
 }
+
+// ── CIRCUIT vs DATASHEET document routing ────────────────────────────────
+// When user asks for "X circuit", route to circuit books NOT component datasheets
+// Component datasheets (pump manuals etc) contain dimensions/specs, NOT circuit diagrams
+const CIRCUIT_DOCUMENT_MAP = {
+  // Pump model → circuit book KB IDs (KB283 = Hydraulic Circuits book, KB105 = Schematic PDF)
+  'a4vg':     ['KB283','KB105'],
+  'a10v':     ['KB283','KB105'],
+  'a4vso':    ['KB283','KB105'],
+  'series 90':['KB283','KB105'],
+  'serie 90': ['KB283','KB105'],
+  'closed loop':['KB283','KB105'],
+  'open loop': ['KB283','KB105'],
+  'hoist circuit':   ['KB115','KB110','KB109','KB114'],
+  'slew circuit':    ['KB115','KB110','KB109'],
+  'luffing circuit': ['KB115','KB110','KB114'],
+  'crane circuit':   ['KB115','KB110','KB109','KB114'],
+  'winch circuit':   ['KB103','KB274','KB115'],
+  'hpu circuit':     ['KB283','KB105'],
+  'pilot circuit':   ['KB283','KB105'],
+};
+
+// Component datasheets — when user says "show me A4VG" without "circuit"
+const DATASHEET_DOCUMENT_MAP = [
+  { patterns: ['a4vg'],          kbIds: ['KB116','KB117'] },
+  { patterns: ['a10v','a10vso'], kbIds: ['KB134'] },
+  { patterns: ['a4vso'],         kbIds: ['KB130'] },
+  { patterns: ['a20vlo'],        kbIds: ['KB128'] },
+  { patterns: ['a4csg'],         kbIds: ['KB135'] },
+  { patterns: ['a2fo'],          kbIds: ['KB129'] },
+  { patterns: ['a6vm'],          kbIds: ['KB151'] },
+  { patterns: ['mrt','mre'],     kbIds: ['KB153'] },
+  { patterns: ['series 90 pump','serie 90 pump','s90 pump'], kbIds: ['KB119','KB141'] },
+  { patterns: ['series 90 motor','serie 90 motor'],          kbIds: ['KB154'] },
+  { patterns: ['series 45'],     kbIds: ['KB142'] },
+  { patterns: ['f11','f12'],     kbIds: ['KB124'] },
+  { patterns: ['pvg32'],         kbIds: ['KB196'] },
+  { patterns: ['pvg120'],        kbIds: ['KB167','KB312'] },
+  { patterns: ['rexroth we','we dcv','we6'], kbIds: ['KB189'] },
+  { patterns: ['counterbalance valve','cbv','vickers cbv'], kbIds: ['KB201'] },
+  { patterns: ['favco','favelle'], kbIds: ['KB115'] },
+  { patterns: ['seatrax'],         kbIds: ['KB110'] },
+  { patterns: ['macgregor','hmc2201'], kbIds: ['KB109'] },
+  { patterns: ['nov ahc','knuckle boom'], kbIds: ['KB114'] },
+  { patterns: ['amclyde'],         kbIds: ['KB102'] },
+  { patterns: ['braden'],          kbIds: ['KB103','KB274'] },
+  { patterns: ['vt-hacd'],         kbIds: ['KB317'] },
+  { patterns: ['vtvpcd'],          kbIds: ['KB318'] },
+  { patterns: ['vt-varp','varp1'], kbIds: ['KB309'] },
+  { patterns: ['pvres','pvrel'],   kbIds: ['KB311'] },
+  { patterns: ['oilgear','pvm'],   kbIds: ['KB123','KB144'] },
+  { patterns: ['hydraulic schematic','hydraulic circuit book','circuit manual'], kbIds: ['KB283','KB105'] },
+];
 
 app.post("/api/kb/chat", async (req, res) => {
   try {
     const { question, history = [], system } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
 
-    // Detect what kind of response is needed
-    const schematicMode = detectSchematicIntent(question);
-    // schematicMode: 'visual' = schematics + brief text
-    //               'context' = full text + supporting schematics
-    //               'text'    = text only, no schematics
+    // ── DEEP-THINK: Classify the query precisely ──────────────────────────
+    const { mode: schematicMode, docType, limit: schematicLimit } = classifyQuery(question);
+    const q_lower = question.toLowerCase();
+    console.log(`Query: "${question.slice(0,60)}" → mode:${schematicMode} type:${docType} limit:${schematicLimit}`);
 
-    // ── SCHEMATIC LIMIT ──────────────────────────────────────────────────────
     let schematics = [];
     let kbContext  = "";
-    // visual = up to 6 pages from ONE document only (clean, not a mixed KB dump)
-    // context = up to 4 supporting images from top doc only
-    // text = no images
-    const schematicLimit = schematicMode === 'visual' ? 6 : schematicMode === 'context' ? 4 : 0;
+    let directHit  = false;
 
-    // ── DIRECT MODEL LOOKUP (visual mode only) ────────────────────────────
-    // If the question names a specific component/model, go straight to that KB document
-    let directHit = false;
-    if (schematicMode === 'visual') {
-      const q_lower = question.toLowerCase();
-      for (const entry of MODEL_MAP) {
-        if (entry.patterns.some(p => q_lower.includes(p))) {
-          const idFilter = entry.kbIds.map(id => `kb_id.eq.${id}`).join(',');
-          const { data: directDocs } = await supabase
-            .from("kb_chunks")
-            .select("kb_id, doc_name, category, brand, searchable_text, schematic_ids, schematic_count")
-            .or(idFilter);
-          if (directDocs && directDocs.length > 0) {
-            console.log(`Direct lookup hit: ${entry.patterns[0]} → ${directDocs.map(d=>d.doc_name).join(', ')}`);
-            kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
-            directDocs.forEach(c => {
-              kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,400)}\n`;
-              if (Array.isArray(c.schematic_ids)) {
-                c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
-                  if (schematics.length < schematicLimit) {
-                    schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
-                  }
-                });
-              }
-            });
-            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write ONLY 1-2 sentences saying where these schematics come from. The PNG images are displayed below. Max 40 words.";
-            directHit = true;
+    if (schematicMode !== 'text') {
+      // ── ROUTE: circuit request → circuit books, datasheet → component docs
+      let targetKbIds = null;
+
+      if (docType === 'circuit') {
+        // Look for circuit-specific routing first
+        for (const [pattern, ids] of Object.entries(CIRCUIT_DOCUMENT_MAP)) {
+          if (q_lower.includes(pattern)) { targetKbIds = ids; break; }
+        }
+        // If no specific circuit route, fall back to general KB search
+      } else if (docType === 'datasheet' || docType === 'pages') {
+        // Look for specific component datasheet
+        for (const entry of DATASHEET_DOCUMENT_MAP) {
+          if (entry.patterns.some(p => q_lower.includes(p))) {
+            targetKbIds = entry.kbIds; break;
           }
-          break;
+        }
+      }
+
+      if (targetKbIds) {
+        const idFilter = targetKbIds.map(id => `kb_id.eq.${id}`).join(',');
+        const { data: directDocs } = await supabase
+          .from("kb_chunks")
+          .select("kb_id, doc_name, category, brand, searchable_text, schematic_ids, schematic_count")
+          .or(idFilter);
+
+        if (directDocs && directDocs.length > 0) {
+          console.log(`Direct hit [${docType}]: ${directDocs.map(d=>d.doc_name.slice(0,30)).join(', ')}`);
+          kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
+          directDocs.forEach(c => {
+            kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,400)}\n`;
+            if (Array.isArray(c.schematic_ids) && schematics.length < schematicLimit) {
+              c.schematic_ids.slice(0, schematicLimit - schematics.length).forEach(imgFile => {
+                if (schematics.length < schematicLimit)
+                  schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
+              });
+            }
+          });
+
+          if (docType === 'circuit') {
+            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT RULES:\n1. Do NOT draw ASCII circuits. The hydraulic circuit PNG images are displayed below.\n2. Write 2-3 sentences ONLY: what circuit is shown and which document it comes from.\n3. Max 60 words. The images ARE the answer.";
+          } else if (docType === 'pages') {
+            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 1-2 sentences identifying the document. The PNG pages are shown below. Max 30 words.";
+          } else {
+            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 2-3 sentences identifying what these document pages show. The PNG images are displayed below. Max 50 words.";
+          }
+          directHit = true;
         }
       }
     }
 
-    // ── GENERAL KB SEARCH (fallback) ─────────────────────────────────────
+    // ── GENERAL KB SEARCH (when no direct hit) ───────────────────────────
     let found = directHit;
     let chunks = [];
     if (!directHit) {
       const topK = schematicMode === 'visual' ? 3 : 5;
       const result = await searchKBInternal(question, topK);
-      chunks = result.chunks;
-      found  = result.found;
+      chunks = result.chunks; found = result.found;
 
       if (found && chunks.length > 0) {
         kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
         chunks.forEach(c => {
-          kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${(c.searchable_text || '').substring(0,1500)}\n`;
-          // Only take schematics from the FIRST (top-scoring) document
-          // This keeps the result clean — one relevant document, not a mixed KB dump
+          kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand?' | Brand:'+c.brand:''}\n${(c.searchable_text||'').substring(0,1500)}\n`;
           if (schematics.length === 0 && schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
             c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
               if (schematics.length < schematicLimit)
@@ -598,11 +682,11 @@ app.post("/api/kb/chat", async (req, res) => {
           }
         });
         if (schematicMode === 'visual') {
-          kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art or text circuits. Write ONLY 2-3 sentences about what documents these schematics come from. PNG images are shown below. Max 50 words.";
+          kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 2-3 sentences describing what document these images come from. PNG images shown below. Max 50 words.";
         } else if (schematicMode === 'context') {
-          kbContext += "--- END KB CONTEXT ---\n\nProvide full technical explanation. Do NOT draw ASCII art — schematic PNG images are shown separately below your text.";
+          kbContext += "--- END KB CONTEXT ---\n\nProvide full technical explanation. Do NOT draw ASCII art — schematic PNG images are shown separately.";
         } else {
-          kbContext += "--- END KB CONTEXT ---\n\nProvide a complete technical text answer.";
+          kbContext += "--- END KB CONTEXT ---\n\nProvide a complete, logical technical answer based on engineering reasoning.";
         }
       }
     }
