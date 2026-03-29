@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.0" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.1" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -340,8 +340,13 @@ const MODEL_MAP = [
   { patterns: ['a2fo'],                           kbIds: ['KB129'] },
   { patterns: ['a6vm'],                           kbIds: ['KB151'] },
   { patterns: ['mrt','mre'],                      kbIds: ['KB153'] },
-  { patterns: ['series 90','serie 90','s90 pump'],kbIds: ['KB119','KB141','KB154'] },
-  { patterns: ['series 45','serie 45'],           kbIds: ['KB142'] },
+  // Sauer Danfoss Series 90 — separate pump vs motor routing
+  { patterns: ['series 90 pump','serie 90 pump','danfoss 90 pump','s90 pump','danfoss pump serie 90'], kbIds: ['KB141','KB119'] },
+  { patterns: ['series 90 motor','serie 90 motor','danfoss 90 motor','s90 motor'],                    kbIds: ['KB154'] },
+  { patterns: ['series 90','serie 90','danfoss 90','s90'],                                            kbIds: ['KB141','KB119','KB154'] },
+  // Sauer Danfoss Series 45 / Series 40 / M45
+  { patterns: ['series 45','serie 45','danfoss 45','s45'],                                            kbIds: ['KB142'] },
+  { patterns: ['series 40','serie 40','m45 pump','danfoss 40'],                                       kbIds: ['KB140'] },
   { patterns: ['f11','f12','parker f11'],         kbIds: ['KB124'] },
   { patterns: ['pvg32','pvg 32'],                 kbIds: ['KB196'] },
   { patterns: ['pvg120','pvg 120'],               kbIds: ['KB167','KB312'] },
@@ -536,8 +541,13 @@ function classifyQuery(question) {
   for (const p of PAGES_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'pages', limit:12 }; }
 
   // Circuit = wants the hydraulic circuit drawing
-  // Check: ends with 'circuit', or contains 'circuit' + schematic/diagram, or common circuit phrases
   const hasCircuit = q.includes(' circuit') || q.endsWith('circuit');
+  const hasCraneCircuit = /\b(hoist|luffing|slew|slewing|crane|winch|boom)\b/.test(q) && hasCircuit;
+  const hasExplain    = /\b(explain|describe|how does|how do|tell me about|what is|understand)\b/.test(q);
+
+  // Crane circuit + explain → context mode (full explanation + circuit images)
+  if (hasCraneCircuit && hasExplain) return { mode:'context', docType:'crane_explain', limit:3 };
+
   for (const p of CIRCUIT_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'circuit', limit:3 }; }
   if (hasCircuit) return { mode:'visual', docType:'circuit', limit:3 };
 
@@ -630,6 +640,14 @@ const DATASHEET_DOCUMENT_MAP = [
   { patterns: ['pvres','pvrel'],   kbIds: ['KB311'] },
   { patterns: ['oilgear','pvm'],   kbIds: ['KB123','KB144'] },
   { patterns: ['hydraulic schematic','hydraulic circuit book','circuit manual'], kbIds: ['KB283','KB105'] },
+  // Troubleshooting and preventive maintenance guides
+  { patterns: ['how to solve','solve hydraulic','prevent hydraulic','preventive hydraulic'], kbIds: ['KB281','KB282'] },
+  { patterns: ['hydraulic troubleshooting','troubleshooting hydraulic'],                    kbIds: ['KB286','KB113','KB282'] },
+  { patterns: ['logical troubleshooting','troubleshooting guide'],                          kbIds: ['KB108','KB104','KB286'] },
+  { patterns: ['hydraulic problem','hydraulic fault','hydraulic failure'],                  kbIds: ['KB281','KB286','KB282'] },
+  { patterns: ['cylinder troubleshooting','cylinder fault'],                               kbIds: ['KB285','KB106'] },
+  { patterns: ['load sensing','ls system','ls circuit service'],                            kbIds: ['KB296'] },
+  { patterns: ['fluid power'],                                                              kbIds: ['KB279','KB277'] },
 ];
 
 app.post("/api/kb/chat", async (req, res) => {
@@ -653,11 +671,11 @@ app.post("/api/kb/chat", async (req, res) => {
       let circuitPageOffset = 0;  // which page to start from for circuit mode
       let circuitPageCount = 3;   // how many pages to show
 
-      if (docType === 'circuit') {
+      if (docType === 'circuit' || docType === 'crane_explain') {
         // Look for circuit-specific routing with optional page offset
         for (const [pattern, entry] of Object.entries(CIRCUIT_DOCUMENT_MAP)) {
           if (q_lower.includes(pattern)) {
-            targetKbIds = entry.kbIds || entry;  // support both old array and new object format
+            targetKbIds = entry.kbIds || entry;
             circuitPageOffset = entry.pageOffset || 0;
             circuitPageCount  = entry.pageCount  || 3;
             break;
@@ -697,7 +715,9 @@ app.post("/api/kb/chat", async (req, res) => {
             }
           });
 
-          if (docType === 'circuit') {
+          if (docType === 'crane_explain') {
+            kbContext += "--- END KB CONTEXT ---\n\nThe user wants an EXPLANATION of the crane circuit, not just images.\nIMPORTANT RULES:\n1. Do NOT draw ASCII circuits.\n2. Give a FULL technical explanation of how the main hoist/luffing circuit works:\n   - Describe the main components (pump, motor, DCV, CBV, brake valve)\n   - Explain the flow path for hoisting and lowering\n   - State typical pressure settings\n   - Explain the safety function (counterbalance valve role)\n3. Keep explanation under 200 words.\n4. The PNG circuit images are shown BELOW your explanation as visual reference.";
+          } else if (docType === 'circuit') {
             kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT RULES:\n1. Do NOT draw ASCII circuits. The hydraulic circuit PNG images are displayed below.\n2. Write 2-3 sentences ONLY: what circuit is shown and which document it comes from.\n3. Max 60 words. The images ARE the answer.";
           } else if (docType === 'pages') {
             kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 1-2 sentences identifying the document. The PNG pages are shown below. Max 30 words.";
@@ -733,7 +753,13 @@ app.post("/api/kb/chat", async (req, res) => {
         } else if (schematicMode === 'context') {
           kbContext += "--- END KB CONTEXT ---\n\nProvide full technical explanation. Do NOT draw ASCII art — schematic PNG images are shown separately.";
         } else {
-          kbContext += "--- END KB CONTEXT ---\n\nProvide a complete, logical technical answer based on engineering reasoning.";
+          // For troubleshooting/fault questions, add reference to relevant KB docs
+          const isTroubleQ = /\b(why|fault|problem|fail|not working|chattering|slow|leak|noise|hot|over|no pressure|low pressure|stuck|not build|not shift|vibrat|alarm|trip)\b/.test(q_lower);
+          if (isTroubleQ) {
+            kbContext += "--- END KB CONTEXT ---\n\nThis is a FAULT DIAGNOSIS question. IMPORTANT:\n1. Use your engineering reasoning FIRST — identify the most likely root cause from first principles.\n2. Reference the KB context for specific procedures, settings, or OEM data.\n3. The KB includes: Hydraulic Troubleshooting guides (KB286), How to Solve Hydraulic Problems (KB281/KB282), Logical Troubleshooting (KB108), and crane-specific guides (KB104).\n4. Answer with: Most likely cause → Physical reasoning → 2-3 alternatives → Ask if they want step-by-step.\n5. Do NOT list every possible cause — give the ONE most likely based on symptoms.";
+          } else {
+            kbContext += "--- END KB CONTEXT ---\n\nProvide a complete, logical technical answer based on engineering reasoning.";
+          }
         }
       }
     }
