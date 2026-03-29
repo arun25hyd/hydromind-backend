@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.2" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.3" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -556,6 +556,14 @@ function classifyQuery(question) {
     for (const p of DATASHEET_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'datasheet', limit:4 }; }
     // "show me [component]" without circuit keyword → datasheet
     // BUT exclude fault/troubleshooting questions: not/fault/why/problem/issue/pressure/error/fail
+    // Troubleshooting GUIDE requests always return datasheet mode (show the document pages)
+    const GUIDE_WORDS = ['troubleshooting guide','how to solve','solve and prevent',
+                         'solve hydraulic','prevent hydraulic','troubleshoot guide',
+                         'hydraulic manual','fluid power book','maintenance manual'];
+    if (GUIDE_WORDS.some(w => q.includes(w))) {
+      return { mode:'visual', docType:'datasheet', limit:4 };
+    }
+
     const FAULT_WORDS = ['not ','fault','why ','problem','issue','fail','error','chattering',
                           'slow','hot','overheat','leak','noise','vibrat','trip','alarm',
                           'pressure drop','no flow','low pressure','high pressure','stuck'];
@@ -620,8 +628,9 @@ const DATASHEET_DOCUMENT_MAP = [
   { patterns: ['a2fo'],          kbIds: ['KB129'] },
   { patterns: ['a6vm'],          kbIds: ['KB151'] },
   { patterns: ['mrt','mre'],     kbIds: ['KB153'] },
-  { patterns: ['series 90','serie 90','danfoss 90','s90'], kbIds: ['KB119','KB141','KB154'] },
-  { patterns: ['series 90 motor','serie 90 motor'],          kbIds: ['KB154'] },
+  { patterns: ['series 90 motor','serie 90 motor','danfoss 90 motor'],              kbIds: ['KB154'] },
+  { patterns: ['series 90 pump','serie 90 pump','danfoss 90 pump'],               kbIds: ['KB141','KB119'] },
+  { patterns: ['series 90','serie 90','danfoss 90','s90'],                         kbIds: ['KB141','KB119','KB154'] },
   { patterns: ['series 45'],     kbIds: ['KB142'] },
   { patterns: ['f11','f12'],     kbIds: ['KB124'] },
   { patterns: ['pvg32'],         kbIds: ['KB196'] },
