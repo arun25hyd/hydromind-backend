@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.7" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.8" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -590,7 +590,7 @@ const DATASHEET_DOCUMENT_MAP = [
   { patterns: ['a2fo'],          kbIds: ['KB129'] },
   { patterns: ['a6vm'],          kbIds: ['KB151'] },
   { patterns: ['mrt','mre'],     kbIds: ['KB153'] },
-  { patterns: ['series 90 pump','serie 90 pump','s90 pump'], kbIds: ['KB119','KB141'] },
+  { patterns: ['series 90','serie 90','danfoss 90','s90'], kbIds: ['KB119','KB141','KB154'] },
   { patterns: ['series 90 motor','serie 90 motor'],          kbIds: ['KB154'] },
   { patterns: ['series 45'],     kbIds: ['KB142'] },
   { patterns: ['f11','f12'],     kbIds: ['KB124'] },
