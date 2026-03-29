@@ -19,11 +19,24 @@ const supabase = createClient(
 );
 
 // ── CORS ───────────────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS = [
+  'https://hydromindai.com',
+  'https://www.hydromindai.com',
+  'http://localhost:3000',
+  'http://localhost:8080',
+];
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || origin.endsWith(".vercel.app") || origin === process.env.FRONTEND_URL) cb(null, true);
-    else cb(new Error("Not allowed by CORS"));
-  }
+    if (!origin) return cb(null, true);  // allow server-to-server
+    if (
+      ALLOWED_ORIGINS.includes(origin) ||
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.netlify.app') ||
+      origin === process.env.FRONTEND_URL
+    ) return cb(null, true);
+    cb(new Error('Not allowed by CORS: ' + origin));
+  },
+  credentials: true,
 }));
 app.use(express.json({ limit: "2mb" }));
 
@@ -328,18 +341,27 @@ async function searchKBInternal(question, topK = 5) {
     if (qWords.length === 0) return { chunks: [], found: false };
 
     // SQL full-text search — fetch only matching rows (avoids loading all 277 rows)
-    // Search on searchable_text (lightweight) + doc_name + tags
-    const orFilter = qWords
-      .map(w => `searchable_text.ilike.%${w}%,doc_name.ilike.%${w}%`)
-      .join(",");
+    // Build a single OR filter: each keyword checked across doc_name and searchable_text
+    // PostgREST or() syntax: comma-separated conditions, all in one string
+    const conditions = [];
+    for (const w of qWords) {
+      conditions.push(`doc_name.ilike.%${w}%`);
+      conditions.push(`searchable_text.ilike.%${w}%`);
+      conditions.push(`brand.ilike.%${w}%`);
+    }
+    const orFilter = conditions.join(',');
 
     const { data: chunks, error } = await supabase
       .from("kb_chunks")
       .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
       .or(orFilter)
-      .limit(20); // fetch top 20 candidates then re-rank
+      .limit(20);
 
-    if (error || !chunks || chunks.length === 0) return { chunks: [], found: false };
+    if (error) {
+      console.error('KB search error:', error.message, '| filter:', orFilter.substring(0,100));
+      return { chunks: [], found: false };
+    }
+    if (!chunks || chunks.length === 0) return { chunks: [], found: false };
 
     // Re-rank by keyword frequency
     const scored = chunks.map(chunk => {
