@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.1" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.2" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -340,9 +340,9 @@ const MODEL_MAP = [
   { patterns: ['a2fo'],                           kbIds: ['KB129'] },
   { patterns: ['a6vm'],                           kbIds: ['KB151'] },
   { patterns: ['mrt','mre'],                      kbIds: ['KB153'] },
-  // Sauer Danfoss Series 90 — separate pump vs motor routing
+  // Sauer Danfoss Series 90 — MORE SPECIFIC patterns first
+  { patterns: ['series 90 motor','serie 90 motor','danfoss 90 motor','s90 motor','90 motor datasheet'],kbIds: ['KB154'] },
   { patterns: ['series 90 pump','serie 90 pump','danfoss 90 pump','s90 pump','danfoss pump serie 90'], kbIds: ['KB141','KB119'] },
-  { patterns: ['series 90 motor','serie 90 motor','danfoss 90 motor','s90 motor'],                    kbIds: ['KB154'] },
   { patterns: ['series 90','serie 90','danfoss 90','s90'],                                            kbIds: ['KB141','KB119','KB154'] },
   // Sauer Danfoss Series 45 / Series 40 / M45
   { patterns: ['series 45','serie 45','danfoss 45','s45'],                                            kbIds: ['KB142'] },
@@ -641,13 +641,15 @@ const DATASHEET_DOCUMENT_MAP = [
   { patterns: ['oilgear','pvm'],   kbIds: ['KB123','KB144'] },
   { patterns: ['hydraulic schematic','hydraulic circuit book','circuit manual'], kbIds: ['KB283','KB105'] },
   // Troubleshooting and preventive maintenance guides
-  { patterns: ['how to solve','solve hydraulic','prevent hydraulic','preventive hydraulic'], kbIds: ['KB281','KB282'] },
-  { patterns: ['hydraulic troubleshooting','troubleshooting hydraulic'],                    kbIds: ['KB286','KB113','KB282'] },
-  { patterns: ['logical troubleshooting','troubleshooting guide'],                          kbIds: ['KB108','KB104','KB286'] },
-  { patterns: ['hydraulic problem','hydraulic fault','hydraulic failure'],                  kbIds: ['KB281','KB286','KB282'] },
-  { patterns: ['cylinder troubleshooting','cylinder fault'],                               kbIds: ['KB285','KB106'] },
-  { patterns: ['load sensing','ls system','ls circuit service'],                            kbIds: ['KB296'] },
-  { patterns: ['fluid power'],                                                              kbIds: ['KB279','KB277'] },
+  // Troubleshooting guides
+  { patterns: ['how to solve','solve hydraulic','prevent hydraulic','preventive hydraulic','solve and prevent'], kbIds: ['KB281','KB282'] },
+  { patterns: ['hydraulic troubleshooting','troubleshooting hydraulic','troubleshoot hydraulic'],               kbIds: ['KB286','KB113','KB282'] },
+  { patterns: ['logical troubleshooting','troubleshooting guide','troubleshooting steps'],                      kbIds: ['KB108','KB104','KB286'] },
+  { patterns: ['hydraulic problem','hydraulic fault','hydraulic failure','hydraulic issue'],                    kbIds: ['KB281','KB286','KB282'] },
+  { patterns: ['cylinder troubleshooting','cylinder fault','cylinder drifting','cylinder not extending'],       kbIds: ['KB285','KB106'] },
+  { patterns: ['load sensing manual','ls service','ls system manual'],                                         kbIds: ['KB296'] },
+  { patterns: ['fluid power engineering','fluid power basics','fluid power ebook'],                             kbIds: ['KB279','KB277'] },
+  { patterns: ['industrial hydraulics manual','industrial hydraulics textbook'],                                kbIds: ['KB289','KB290'] },
 ];
 
 app.post("/api/kb/chat", async (req, res) => {
