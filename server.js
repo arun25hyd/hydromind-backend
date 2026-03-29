@@ -457,32 +457,85 @@ app.post("/api/kb/search", async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 // KB-ENHANCED CHAT — FIXED: uses internal function, no localhost call
 // ══════════════════════════════════════════════════════════════════════════
+// ── SCHEMATIC INTENT DETECTION ─────────────────────────────────────────────
+// Keywords that mean the user explicitly wants visual/circuit output
+const SCHEMATIC_INTENT_STRONG = [
+  'show me','show schematic','show circuit','show diagram','show page','show drawing',
+  'display schematic','display circuit','display diagram',
+  'schematic for','circuit for','diagram for','drawing of',
+  'all pages','all schematics','full manual','manual pages',
+  'hydraulic circuit','wiring diagram','circuit diagram','circuit schematic',
+  'pipe diagram','piping diagram','block diagram','layout diagram',
+];
+// Keywords that suggest a schematic would be helpful alongside text
+const SCHEMATIC_INTENT_CONTEXT = [
+  'explain.*circuit','describe.*circuit','how does.*circuit','circuit.*work',
+  'explain.*schematic','with diagram','with schematic','with drawing',
+  'visual.*explain','explain.*visual','illustrate','illustration',
+];
+
+function detectSchematicIntent(question) {
+  const q = question.toLowerCase();
+  // Strong intent — user is explicitly asking for visual
+  for (const kw of SCHEMATIC_INTENT_STRONG) {
+    if (q.includes(kw)) return 'visual';
+  }
+  // Contextual intent — text answer with supporting schematic
+  for (const pattern of SCHEMATIC_INTENT_CONTEXT) {
+    if (new RegExp(pattern).test(q)) return 'context';
+  }
+  // Default — text only, no schematics
+  return 'text';
+}
+
 app.post("/api/kb/chat", async (req, res) => {
   try {
     const { question, history = [], system } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
 
-    // ✅ FIX: use internal function instead of localhost fetch
+    // Detect what kind of response is needed
+    const schematicMode = detectSchematicIntent(question);
+    // schematicMode: 'visual' = schematics + brief text
+    //               'context' = full text + supporting schematics
+    //               'text'    = text only, no schematics
+
     const { chunks, found } = await searchKBInternal(question, 5);
 
     let kbContext = "";
     let schematics = [];
+    let schematicLimit = 0; // how many schematics to return
+
+    if (schematicMode === 'visual')   schematicLimit = 12; // show up to 12 pages
+    if (schematicMode === 'context')  schematicLimit = 4;  // max 4 supporting images
+    if (schematicMode === 'text')     schematicLimit = 0;  // no images
+
     if (found && chunks.length > 0) {
-      kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT (from uploaded documents) ---\n";
+      kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
       chunks.forEach(c => {
-        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}${c.component_type ? ' | Type: '+c.component_type : ''}\n${(c.searchable_text || c.content || '').substring(0,1500)}\n`;
-        if (Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-          c.schematic_ids.slice(0,3).forEach(imgFile => {
-            schematics.push({
-              filename: imgFile,
-              url: `https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/${imgFile}`,
-              doc: c.doc_name,
-              category: c.category
-            });
+        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${(c.searchable_text || '').substring(0,1500)}\n`;
+        if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
+          const limit = Math.min(c.schematic_ids.length, Math.ceil(schematicLimit / chunks.length));
+          c.schematic_ids.slice(0, limit).forEach(imgFile => {
+            if (schematics.length < schematicLimit) {
+              schematics.push({
+                filename: imgFile,
+                url: `https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/${imgFile}`,
+                doc: c.doc_name,
+                category: c.category,
+              });
+            }
           });
         }
       });
-      kbContext += "--- END KB CONTEXT ---\n\nUse the above KB context to answer. If context is relevant, prioritise it. If schematics are available, mention them to the user.";
+
+      // Tailor the instruction to the AI based on mode
+      if (schematicMode === 'visual') {
+        kbContext += "--- END KB CONTEXT ---\n\nThe user is requesting a schematic or circuit diagram. Provide a very brief introduction (2-3 sentences) then let the schematic images speak for themselves. Do not write long explanations.";
+      } else if (schematicMode === 'context') {
+        kbContext += "--- END KB CONTEXT ---\n\nProvide a full technical explanation. Schematic images will be shown alongside your answer for visual reference.";
+      } else {
+        kbContext += "--- END KB CONTEXT ---\n\nProvide a complete technical text answer. No schematics needed for this query.";
+      }
     }
 
     const enhancedSystem = (system || "") + kbContext;
@@ -509,7 +562,7 @@ app.post("/api/kb/chat", async (req, res) => {
       return res.status(response.status).json({ error: data });
     }
 
-    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length, schematics });
+    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length, schematics, schematicMode });
   } catch (e) {
     console.error("kb/chat error:", e.message);
     res.status(500).json({ error: e.message });
