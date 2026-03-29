@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.6" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.7" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -497,10 +497,14 @@ app.post("/api/kb/search", async (req, res) => {
 // Datasheet request — user wants the technical spec document for a component
 const DATASHEET_PATTERNS = [
   'datasheet','data sheet','spec sheet','technical data','specifications',
-  'show me.*pump','show me.*motor','show me.*valve','show me.*manual',
-  'pump manual','motor manual','valve manual','show.*catalog',
-  'show.*document','open.*manual','show.*reference',
+  'pump manual','motor manual','valve manual','crane manual',
+  'show me the pump','show me the motor','show me the valve','show me the manual',
+  'open the manual','show the catalog','show catalog','show document',
 ];
+
+// Simple words that alone mean "show me this component" when model name is present
+// e.g. "show me the A4VG pump" or "show me Favco"
+const SHOW_ME_COMPONENT_WORDS = ['pump','motor','manual','catalog','document','reference'];
 
 // Circuit/schematic request — user wants the hydraulic circuit drawing
 const CIRCUIT_PATTERNS = [
@@ -540,6 +544,10 @@ function classifyQuery(question) {
   // Datasheet = wants the component spec/manual — but NOT if 'circuit' is in query
   if (!hasCircuit) {
     for (const p of DATASHEET_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'datasheet', limit:4 }; }
+    // "show me [model]" or "show me the [model]" without circuit keyword → datasheet
+    if (q.startsWith('show me') || q.startsWith('open') || q.startsWith('display')) {
+      return { mode:'visual', docType:'datasheet', limit:4 };
+    }
   }
 
   // Context = explanation with optional visual support
