@@ -351,8 +351,94 @@ async function searchKBInternal(question, topK = 5) {
     }
     const orFilter = conditions.join(',');
 
-    // Detect if query implies a specific category — use it to filter candidates
+    // ── DIRECT MODEL LOOKUP ─────────────────────────────────────────────────
+    // For visual mode: if a specific model/brand name is in the question,
+    // try to find that exact document first before general search
     const q_lower = question.toLowerCase();
+    
+    // Model-to-KB mapping for direct document lookup
+    const MODEL_MAP = [
+      { patterns: ['a4vg','a4vg56','a4vg90','a4vg125','a4vg180'], kbIds: ['KB116','KB117'] },
+      { patterns: ['a10v','a10vso','a10vo'],                        kbIds: ['KB134'] },
+      { patterns: ['a4vso'],                                         kbIds: ['KB130'] },
+      { patterns: ['a20vlo'],                                        kbIds: ['KB128'] },
+      { patterns: ['a4csg'],                                         kbIds: ['KB135'] },
+      { patterns: ['a2fo'],                                          kbIds: ['KB129'] },
+      { patterns: ['a6vm'],                                          kbIds: ['KB151'] },
+      { patterns: ['mrt','mre'],                                     kbIds: ['KB153'] },
+      { patterns: ['series 90','serie 90','danfoss 90'],             kbIds: ['KB119','KB141','KB154'] },
+      { patterns: ['series 45','serie 45'],                          kbIds: ['KB142'] },
+      { patterns: ['parker f11','parker f12','f11','f12'],           kbIds: ['KB124'] },
+      { patterns: ['pvg32','pvg 32'],                                kbIds: ['KB196'] },
+      { patterns: ['pvg120','pvg 120'],                              kbIds: ['KB167','KB168','KB312'] },
+      { patterns: ['rexroth we','we6','we dcv'],                     kbIds: ['KB189'] },
+      { patterns: ['counterbalance','cbv','eaton cbv','vickers cbv'],kbIds: ['KB201'] },
+      { patterns: ['favco','favelle'],                               kbIds: ['KB115'] },
+      { patterns: ['seatrax'],                                       kbIds: ['KB110'] },
+      { patterns: ['macgregor','hmc2201'],                           kbIds: ['KB109'] },
+      { patterns: ['nov ahc','knuckle boom'],                        kbIds: ['KB114'] },
+      { patterns: ['amclyde','model 52'],                            kbIds: ['KB102'] },
+      { patterns: ['braden winch','braden'],                         kbIds: ['KB103','KB274'] },
+      { patterns: ['vt-hacd','vt hacd'],                             kbIds: ['KB317'] },
+      { patterns: ['vtvpcd','vt vpcd'],                              kbIds: ['KB318'] },
+      { patterns: ['vt-varp','vt varp'],                             kbIds: ['KB309'] },
+      { patterns: ['pvres','pvrel','danfoss joystick'],               kbIds: ['KB311'] },
+      { patterns: ['hydraulic schematic','hydraulic circuit','circuit diagram'], kbIds: ['KB283','KB105'] },
+    ];
+
+    // Check for direct model match
+    let directKbIds = null;
+    for (const entry of MODEL_MAP) {
+      if (entry.patterns.some(p => q_lower.includes(p))) {
+        directKbIds = entry.kbIds;
+        break;
+      }
+    }
+
+    // If direct match found and in visual mode, fetch those specific docs first
+    if (directKbIds && schematicMode === 'visual') {
+      const idFilter = directKbIds.map(id => `kb_id.eq.${id}`).join(',');
+      const { data: directDocs } = await supabase
+        .from("kb_chunks")
+        .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
+        .or(idFilter);
+      if (directDocs && directDocs.length > 0) {
+        // Direct docs found — use them, skip general search
+        const top = { chunks: directDocs, found: true };
+        console.log(`Direct model lookup: \${directKbIds} → \${directDocs.map(d=>d.doc_name).join(', ')}`);
+        // Build response from direct docs
+        kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
+        directDocs.forEach(c => {
+          kbContext += `\n[\${c.category} — \${c.doc_name}]\n\${(c.searchable_text||'').substring(0,500)}\n`;
+          if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
+            c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
+              if (schematics.length < schematicLimit) {
+                schematics.push({
+                  filename: imgFile,
+                  url: `https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/\${imgFile}`,
+                  doc: c.doc_name,
+                  category: c.category,
+                });
+              }
+            });
+          }
+        });
+        kbContext += "--- END KB CONTEXT ---\n\nThe user is requesting a schematic or circuit diagram. IMPORTANT RULES:\n1. Do NOT draw ASCII art, text diagrams, or character-based circuits.\n2. Write ONLY 2-3 sentences identifying what document these schematics come from.\n3. The PNG schematic images are shown separately below your text.\n4. Keep your response under 60 words total.";
+        const enhancedSystem = (system || "") + kbContext;
+        const messages = [...history, { role: "user", content: question }];
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 200, system: enhancedSystem, messages })
+        });
+        const data = await response.json();
+        if (!response.ok) return res.status(response.status).json({ error: data });
+        return res.json({ ...data, kbUsed: true, kbChunkCount: directDocs.length, schematics, schematicMode });
+      }
+    }
+
+    // ── GENERAL SEARCH (fallback) ─────────────────────────────────────────
+    // Detect if query implies a specific category — use it to filter candidates
     let categoryFilter = null;
     if (/\b(pump|a4vg|a10v|danfoss|kawasaki|piston pump|gear pump|vane pump|series 90)/.test(q_lower)) categoryFilter = 'pump';
     else if (/\b(motor|a6vm|radial motor|lsht|torqmotor|wheel motor)/.test(q_lower)) categoryFilter = 'motor';
