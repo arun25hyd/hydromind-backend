@@ -529,8 +529,13 @@ app.post("/api/kb/chat", async (req, res) => {
       chunks.forEach(c => {
         kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${(c.searchable_text || '').substring(0,1500)}\n`;
         if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-          const limit = Math.min(c.schematic_ids.length, Math.ceil(schematicLimit / chunks.length));
-          c.schematic_ids.slice(0, limit).forEach(imgFile => {
+          // In visual mode: only use schematics from the top-scoring doc (first in sorted list)
+          // In context mode: allow up to 2 per doc
+          const isTopDoc = schematics.length === 0;
+          const docLimit = schematicMode === 'visual'
+            ? (isTopDoc ? schematicLimit : 0)          // visual: all from top doc only
+            : Math.min(2, schematicLimit - schematics.length); // context: max 2 per doc
+          c.schematic_ids.slice(0, docLimit).forEach(imgFile => {
             if (schematics.length < schematicLimit) {
               schematics.push({
                 filename: imgFile,
