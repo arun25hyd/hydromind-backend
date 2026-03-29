@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.3" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "text-only-v7.0" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -328,8 +328,6 @@ async function getEmbedding(text) {
   }
 }
 
-const SUPABASE_SCHEM_URL = 'https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/';
-
 // ── MODEL → KB ID DIRECT LOOKUP MAP ──────────────────────────────────────────
 const MODEL_MAP = [
   { patterns: ['a4vg','a4vg56','a4vg90','a4vg125','a4vg180'], kbIds: ['KB116','KB117'] },
@@ -495,284 +493,152 @@ app.post("/api/kb/search", async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// DEEP-THINK QUERY CLASSIFIER
-// Before searching KB, classify EXACTLY what the user wants
+// KB-ENHANCED CHAT — TEXT-ONLY, DEEP-THINK REASONING
+// No schematic images. The AI answers using KB context + engineering logic.
+// Users who want documents/schematics are directed to the Knowledge Base page.
 // ══════════════════════════════════════════════════════════════════════════
 
-// Datasheet request — user wants the technical spec document for a component
-const DATASHEET_PATTERNS = [
-  'datasheet','data sheet','spec sheet','technical data','specifications',
-  'pump manual','motor manual','valve manual','crane manual',
-  'show me the pump','show me the motor','show me the valve','show me the manual',
-  'open the manual','show the catalog','show catalog','show document',
+// ── SMART KB ROUTING MAP ──────────────────────────────────────────────────────
+// When user mentions a specific component/model, fetch those KB docs directly
+// so the AI has the RIGHT technical data to answer with
+const KB_ROUTE_MAP = [
+  // Rexroth pumps
+  { p: ['a4vg','a4vg56','a4vg71','a4vg90','a4vg125','a4vg180'],  k: ['KB116','KB117'] },
+  { p: ['a10v','a10vso','a10vo'],                                  k: ['KB134'] },
+  { p: ['a4vso'],                                                  k: ['KB130'] },
+  { p: ['a20vlo'],                                                 k: ['KB128'] },
+  { p: ['a4csg'],                                                  k: ['KB135'] },
+  { p: ['a2fo'],                                                   k: ['KB129'] },
+  // Rexroth motors
+  { p: ['a6vm'],                                                   k: ['KB151'] },
+  { p: ['mrt motor','mre motor','rexroth mrt','rexroth mre'],      k: ['KB153'] },
+  // Danfoss pumps — specific first
+  { p: ['series 90 motor','serie 90 motor','danfoss 90 motor'],    k: ['KB154'] },
+  { p: ['series 90 pump','serie 90 pump','danfoss 90 pump'],       k: ['KB141','KB119'] },
+  { p: ['series 90','serie 90','danfoss series 90','s90'],         k: ['KB141','KB119','KB154'] },
+  { p: ['series 45','serie 45','danfoss 45','s45','m45'],          k: ['KB142'] },
+  { p: ['series 40','serie 40','danfoss 40'],                      k: ['KB140'] },
+  // Parker
+  { p: ['parker f11','parker f12','f11 motor','f12 motor'],        k: ['KB124'] },
+  { p: ['kawasaki k3vl'],                                          k: ['KB121'] },
+  // Danfoss valves
+  { p: ['pvg32','pvg 32'],                                         k: ['KB196'] },
+  { p: ['pvg120','pvg 120'],                                       k: ['KB312','KB167'] },
+  { p: ['pvg100','pvg 100'],                                       k: ['KB168'] },
+  { p: ['pvg','danfoss pvg proportional'],                         k: ['KB196','KB312'] },
+  { p: ['pve series','danfoss pve'],                               k: ['KB320'] },
+  { p: ['pvres','pvrel','danfoss joystick'],                       k: ['KB311'] },
+  // Rexroth valves & controls
+  { p: ['rexroth we','we6 dcv','we dcv'],                         k: ['KB189'] },
+  { p: ['vt-hacd','vt hacd'],                                      k: ['KB317'] },
+  { p: ['vtvpcd'],                                                 k: ['KB318'] },
+  { p: ['vt-varp','vt varp','varp1'],                              k: ['KB309'] },
+  // Eaton / Vickers
+  { p: ['counterbalance valve','cbv','vickers cbv','eaton cbv'],   k: ['KB201'] },
+  // Crane manuals
+  { p: ['favco','favelle'],                                        k: ['KB115'] },
+  { p: ['seatrax'],                                                k: ['KB110'] },
+  { p: ['macgregor','hmc2201'],                                    k: ['KB109'] },
+  { p: ['nov ahc','knuckle boom'],                                 k: ['KB114'] },
+  { p: ['amclyde','model 52'],                                     k: ['KB102'] },
+  { p: ['braden winch','braden ch'],                               k: ['KB103','KB274'] },
+  // Troubleshooting docs
+  { p: ['how to solve','solve hydraulic','prevent hydraulic'],     k: ['KB281','KB282'] },
+  { p: ['hydraulic troubleshooting','troubleshooting hydraulic'],  k: ['KB286','KB298'] },
+  { p: ['logical troubleshooting'],                                k: ['KB108'] },
+  { p: ['load sensing service','ls service manual'],               k: ['KB296'] },
+  // Circuit books
+  { p: ['hydraulic circuit book','circuit manual'],                k: ['KB283','KB105'] },
 ];
 
-// Simple words that alone mean "show me this component" when model name is present
-// e.g. "show me the A4VG pump" or "show me Favco"
-const SHOW_ME_COMPONENT_WORDS = ['pump','motor','manual','catalog','document','reference'];
-
-// Circuit/schematic request — user wants the hydraulic circuit drawing
-const CIRCUIT_PATTERNS = [
-  'circuit schematic','hydraulic circuit','circuit diagram','schematic diagram',
-  'show circuit','show schematic','show diagram','show drawing','show wiring',
-  'circuit for','schematic for','diagram for','wiring diagram',
-  'hoist circuit','slew circuit','luffing circuit','HPU circuit',
-  'closed loop circuit','open loop circuit','control circuit',
-  'pilot circuit','brake circuit','load holding circuit',
-];
-
-// Full manual pages request
-const PAGES_PATTERNS = [
-  'all pages','full manual','every page','complete manual','entire manual',
-  'all schematics','show all','manual pages','show pages',
-];
-
-// Context/explanation with visual support
-const CONTEXT_PATTERNS = [
-  'explain.*circuit','describe.*circuit','how does.*circuit','circuit.*work',
-  'explain.*schematic','with diagram','with schematic','with drawing',
-  'how.*works','explain.*system','describe.*system',
-];
-
-function classifyQuery(question) {
+async function getKbContextForQuestion(question, topK) {
   const q = question.toLowerCase();
 
-  // Pages = most explicit — user wants the whole document
-  for (const p of PAGES_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'pages', limit:12 }; }
-
-  // Circuit = wants the hydraulic circuit drawing
-  const hasCircuit = q.includes(' circuit') || q.endsWith('circuit');
-  const hasCraneCircuit = /\b(hoist|luffing|slew|slewing|crane|winch|boom)\b/.test(q) && hasCircuit;
-  const hasExplain    = /\b(explain|describe|how does|how do|tell me about|what is|understand)\b/.test(q);
-
-  // Crane circuit + explain → context mode (full explanation + circuit images)
-  if (hasCraneCircuit && hasExplain) return { mode:'context', docType:'crane_explain', limit:3 };
-
-  for (const p of CIRCUIT_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'circuit', limit:3 }; }
-  if (hasCircuit) return { mode:'visual', docType:'circuit', limit:3 };
-
-  // Datasheet = wants the component spec/manual — but NOT if 'circuit' is in query
-  if (!hasCircuit) {
-    for (const p of DATASHEET_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'datasheet', limit:4 }; }
-    // "show me [component]" without circuit keyword → datasheet
-    // BUT exclude fault/troubleshooting questions: not/fault/why/problem/issue/pressure/error/fail
-    // Troubleshooting GUIDE requests always return datasheet mode (show the document pages)
-    const GUIDE_WORDS = ['troubleshooting guide','how to solve','solve and prevent',
-                         'solve hydraulic','prevent hydraulic','troubleshoot guide',
-                         'hydraulic manual','fluid power book','maintenance manual'];
-    if (GUIDE_WORDS.some(w => q.includes(w))) {
-      return { mode:'visual', docType:'datasheet', limit:4 };
-    }
-
-    const FAULT_WORDS = ['not ','fault','why ','problem','issue','fail','error','chattering',
-                          'slow','hot','overheat','leak','noise','vibrat','trip','alarm',
-                          'pressure drop','no flow','low pressure','high pressure','stuck'];
-    const isFaultQ = FAULT_WORDS.some(w => q.includes(w));
-    if (!isFaultQ && (q.startsWith('show me') || q.startsWith('open') || q.startsWith('display'))) {
-      return { mode:'visual', docType:'datasheet', limit:4 };
+  // 1. Try direct KB routing by component/model name
+  for (const entry of KB_ROUTE_MAP) {
+    if (entry.p.some(p => q.includes(p))) {
+      const idFilter = entry.k.map(id => `kb_id.eq.${id}`).join(',');
+      const { data } = await supabase
+        .from("kb_chunks")
+        .select("kb_id, doc_name, category, brand, component_type, searchable_text, schematic_count")
+        .or(idFilter);
+      if (data && data.length > 0) {
+        console.log(`KB route hit: ${entry.p[0]} → ${data.map(d=>d.doc_name.slice(0,25)).join(', ')}`);
+        return { chunks: data, found: true, source: 'direct' };
+      }
+      break;
     }
   }
 
-  // Context = explanation with optional visual support
-  for (const p of CONTEXT_PATTERNS) { if (new RegExp(p).test(q)) return { mode:'context', docType:'explain', limit:3 }; }
-
-  // Default = text answer only
-  return { mode:'text', docType:'answer', limit:0 };
+  // 2. Fallback: general keyword search
+  return await searchKBInternal(question, topK);
 }
-
-// ── CIRCUIT vs DATASHEET document routing ────────────────────────────────
-// When user asks for "X circuit", route to correct docs AND correct page offset
-// Format: { kbIds, pageOffset, pageCount }
-// pageOffset = which page index to start from (0-based)
-// pageCount = how many pages to show (default 3)
-// CIRCUIT_DOCUMENT_MAP: { kbIds, pageOffset, pageCount }
-// pageOffset = 0-based index of first circuit diagram page in the document
-// pageCount  = number of circuit pages to show (default 3)
-const CIRCUIT_DOCUMENT_MAP = {
-  // A4VG: circuit diagrams are at pages 60-63 of the 74-page datasheet
-  'a4vg':          { kbIds: ['KB116','KB117'], pageOffset: 59, pageCount: 4 },
-  // A10VSO: circuit diagrams in their manual
-  'a10v':          { kbIds: ['KB134'],          pageOffset: 0,  pageCount: 3 },
-  // Danfoss Series 90: circuit diagrams
-  'series 90':     { kbIds: ['KB119','KB141'],  pageOffset: 0,  pageCount: 3 },
-  'serie 90':      { kbIds: ['KB119','KB141'],  pageOffset: 0,  pageCount: 3 },
-  'danfoss 90':    { kbIds: ['KB119','KB141'],  pageOffset: 0,  pageCount: 3 },
-  // PVG32 proportional valve circuit
-  'pvg32':         { kbIds: ['KB196'],           pageOffset: 0,  pageCount: 3 },
-  'pvg':           { kbIds: ['KB196'],           pageOffset: 0,  pageCount: 3 },
-  // Counterbalance valve — all pages are circuit-relevant
-  'counterbalance':{ kbIds: ['KB201'],           pageOffset: 0,  pageCount: 4 },
-  'cbv':           { kbIds: ['KB201'],           pageOffset: 0,  pageCount: 4 },
-  // Crane system circuits from OEM manuals
-  'hoist circuit': { kbIds: ['KB115','KB109','KB110'], pageOffset: 0, pageCount: 3 },
-  'slew circuit':  { kbIds: ['KB115','KB110','KB109'], pageOffset: 0, pageCount: 3 },
-  'luffing':       { kbIds: ['KB115','KB110','KB114'], pageOffset: 0, pageCount: 3 },
-  'crane circuit': { kbIds: ['KB109','KB110','KB114'], pageOffset: 0, pageCount: 3 },
-  'winch circuit': { kbIds: ['KB103','KB274'],    pageOffset: 0,  pageCount: 3 },
-  // Generic hydraulic circuits
-  'hpu circuit':   { kbIds: ['KB283','KB105'],   pageOffset: 0,  pageCount: 3 },
-  'pilot circuit': { kbIds: ['KB283'],            pageOffset: 0,  pageCount: 3 },
-  'closed loop':   { kbIds: ['KB283','KB105'],   pageOffset: 0,  pageCount: 3 },
-  'open loop':     { kbIds: ['KB283','KB105'],   pageOffset: 0,  pageCount: 3 },
-  'load sensing':  { kbIds: ['KB283'],            pageOffset: 0,  pageCount: 3 },
-  'hydraulic schematic': { kbIds: ['KB283','KB105'], pageOffset: 0, pageCount: 3 },
-};
-
-// Component datasheets — when user says "show me A4VG" without "circuit"
-const DATASHEET_DOCUMENT_MAP = [
-  { patterns: ['a4vg'],          kbIds: ['KB116','KB117'] },
-  { patterns: ['a10v','a10vso'], kbIds: ['KB134'] },
-  { patterns: ['a4vso'],         kbIds: ['KB130'] },
-  { patterns: ['a20vlo'],        kbIds: ['KB128'] },
-  { patterns: ['a4csg'],         kbIds: ['KB135'] },
-  { patterns: ['a2fo'],          kbIds: ['KB129'] },
-  { patterns: ['a6vm'],          kbIds: ['KB151'] },
-  { patterns: ['mrt','mre'],     kbIds: ['KB153'] },
-  { patterns: ['series 90 motor','serie 90 motor','danfoss 90 motor'],              kbIds: ['KB154'] },
-  { patterns: ['series 90 pump','serie 90 pump','danfoss 90 pump'],               kbIds: ['KB141','KB119'] },
-  { patterns: ['series 90','serie 90','danfoss 90','s90'],                         kbIds: ['KB141','KB119','KB154'] },
-  { patterns: ['series 45'],     kbIds: ['KB142'] },
-  { patterns: ['f11','f12'],     kbIds: ['KB124'] },
-  { patterns: ['pvg32'],         kbIds: ['KB196'] },
-  { patterns: ['pvg120'],        kbIds: ['KB167','KB312'] },
-  { patterns: ['rexroth we','we dcv','we6'], kbIds: ['KB189'] },
-  { patterns: ['counterbalance valve','cbv','vickers cbv'], kbIds: ['KB201'] },
-  { patterns: ['favco','favelle'], kbIds: ['KB115'] },
-  { patterns: ['seatrax'],         kbIds: ['KB110'] },
-  { patterns: ['macgregor','hmc2201'], kbIds: ['KB109'] },
-  { patterns: ['nov ahc','knuckle boom'], kbIds: ['KB114'] },
-  { patterns: ['amclyde'],         kbIds: ['KB102'] },
-  { patterns: ['braden'],          kbIds: ['KB103','KB274'] },
-  { patterns: ['vt-hacd'],         kbIds: ['KB317'] },
-  { patterns: ['vtvpcd'],          kbIds: ['KB318'] },
-  { patterns: ['vt-varp','varp1'], kbIds: ['KB309'] },
-  { patterns: ['pvres','pvrel'],   kbIds: ['KB311'] },
-  { patterns: ['oilgear','pvm'],   kbIds: ['KB123','KB144'] },
-  { patterns: ['hydraulic schematic','hydraulic circuit book','circuit manual'], kbIds: ['KB283','KB105'] },
-  // Troubleshooting and preventive maintenance guides
-  // Troubleshooting guides
-  { patterns: ['how to solve','solve hydraulic','prevent hydraulic','preventive hydraulic','solve and prevent'], kbIds: ['KB281','KB282'] },
-  { patterns: ['hydraulic troubleshooting','troubleshooting hydraulic','troubleshoot hydraulic'],               kbIds: ['KB286','KB113','KB282'] },
-  { patterns: ['logical troubleshooting','troubleshooting guide','troubleshooting steps'],                      kbIds: ['KB108','KB104','KB286'] },
-  { patterns: ['hydraulic problem','hydraulic fault','hydraulic failure','hydraulic issue'],                    kbIds: ['KB281','KB286','KB282'] },
-  { patterns: ['cylinder troubleshooting','cylinder fault','cylinder drifting','cylinder not extending'],       kbIds: ['KB285','KB106'] },
-  { patterns: ['load sensing manual','ls service','ls system manual'],                                         kbIds: ['KB296'] },
-  { patterns: ['fluid power engineering','fluid power basics','fluid power ebook'],                             kbIds: ['KB279','KB277'] },
-  { patterns: ['industrial hydraulics manual','industrial hydraulics textbook'],                                kbIds: ['KB289','KB290'] },
-];
 
 app.post("/api/kb/chat", async (req, res) => {
   try {
     const { question, history = [], system } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
 
-    // ── DEEP-THINK: Classify the query precisely ──────────────────────────
-    const { mode: schematicMode, docType, limit: schematicLimit } = classifyQuery(question);
     const q_lower = question.toLowerCase();
-    console.log(`Query: "${question.slice(0,60)}" → mode:${schematicMode} type:${docType} limit:${schematicLimit}`);
+    console.log(`Query: "${question.slice(0,70)}"`);
 
-    let schematics = [];
-    let kbContext  = "";
-    let directHit  = false;
+    // ── FETCH RELEVANT KB CONTEXT ─────────────────────────────────────────
+    const { chunks, found } = await getKbContextForQuestion(question, 5);
 
-    if (schematicMode !== 'text') {
-      // ── ROUTE: circuit request → circuit books, datasheet → component docs
-      let targetKbIds = null;
+    let kbContext = "";
 
-      let circuitPageOffset = 0;  // which page to start from for circuit mode
-      let circuitPageCount = 3;   // how many pages to show
+    if (found && chunks.length > 0) {
+      kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
+      chunks.forEach(c => {
+        const text = (c.searchable_text || '').substring(0, 1800);
+        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${text}\n`;
+      });
 
-      if (docType === 'circuit' || docType === 'crane_explain') {
-        // Look for circuit-specific routing with optional page offset
-        for (const [pattern, entry] of Object.entries(CIRCUIT_DOCUMENT_MAP)) {
-          if (q_lower.includes(pattern)) {
-            targetKbIds = entry.kbIds || entry;
-            circuitPageOffset = entry.pageOffset || 0;
-            circuitPageCount  = entry.pageCount  || 3;
-            break;
-          }
-        }
-        // If no specific circuit route, fall back to general KB search
-      } else if (docType === 'datasheet' || docType === 'pages') {
-        // Look for specific component datasheet
-        for (const entry of DATASHEET_DOCUMENT_MAP) {
-          if (entry.patterns.some(p => q_lower.includes(p))) {
-            targetKbIds = entry.kbIds; break;
-          }
-        }
+      // Determine answer type and give the AI the right instruction
+      const isFaultQ = /\b(why|fault|not working|chattering|slow|leak|noise|hot|overheat|no pressure|low pressure|stuck|not build|not shift|vibrat|alarm|trip|fail|drift|surge|hunt|cavitat)\b/.test(q_lower);
+      const isCraneCircuit = /\b(hoist|luffing|slew|slewing|crane circuit|winch circuit)\b/.test(q_lower) && /\b(explain|circuit|how|describe)\b/.test(q_lower);
+      const isDatasheet = /\b(datasheet|data sheet|specification|technical data|performance curve|displacement|speed range|torque|pressure rating)\b/.test(q_lower);
+
+      if (isFaultQ) {
+        kbContext += `--- END KB CONTEXT ---
+
+FAULT DIAGNOSIS PROTOCOL:
+1. State the SINGLE most likely root cause based on symptoms + engineering reasoning
+2. Give the physical explanation (why does this cause that symptom?)
+3. List 2-3 alternative causes in order of likelihood
+4. End with: "Do you want me to walk you through the step-by-step diagnostic procedure?"
+DO NOT list every possible cause. Be specific. Be direct.`;
+      } else if (isCraneCircuit) {
+        kbContext += `--- END KB CONTEXT ---
+
+CRANE CIRCUIT EXPLANATION:
+Provide a clear technical explanation of how this crane hydraulic circuit works:
+1. Main components (pump type, motor type, DCV, counterbalance valve, brake valve)
+2. Flow path for the WORK stroke (e.g. hoisting)
+3. Flow path for the RETURN/LOWER stroke
+4. Safety functions: CBV setting, brake release sequence
+5. Typical operating pressures
+Reference the OEM manual in KB if available. Be specific and technical.`;
+      } else if (isDatasheet) {
+        kbContext += `--- END KB CONTEXT ---
+
+DATASHEET RESPONSE:
+Present the key technical specifications from the KB context clearly:
+- Displacement range, pressure ratings, speed range
+- Control options available
+- Key application notes
+If the user wants to view full drawings, direct them to the Knowledge Base:
+"→ View the full manual in the HydroMind Knowledge Base"`;
+      } else {
+        kbContext += `--- END KB CONTEXT ---
+
+Provide a complete, specific technical answer using the KB context above.
+Reference OEM model numbers, pressure values, and specific settings where available.
+If full document pages are needed, mention: "→ Full manual available in the HydroMind Knowledge Base"`;
       }
-
-      if (targetKbIds) {
-        const idFilter = targetKbIds.map(id => `kb_id.eq.${id}`).join(',');
-        const { data: directDocs } = await supabase
-          .from("kb_chunks")
-          .select("kb_id, doc_name, category, brand, searchable_text, schematic_ids, schematic_count")
-          .or(idFilter);
-
-        if (directDocs && directDocs.length > 0) {
-          console.log(`Direct hit [${docType}]: ${directDocs.map(d=>d.doc_name.slice(0,30)).join(', ')}`);
-          kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
-          directDocs.forEach(c => {
-            kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,400)}\n`;
-            if (Array.isArray(c.schematic_ids) && schematics.length < schematicLimit) {
-              // For circuit mode: use pageOffset to show the correct circuit pages
-              // For datasheet mode: always start from page 1 (index 0)
-              const pageStart = (docType === 'circuit') ? circuitPageOffset : 0;
-              const pageEnd   = pageStart + (docType === 'circuit' ? circuitPageCount : schematicLimit);
-              c.schematic_ids.slice(pageStart, pageEnd).forEach(imgFile => {
-                if (schematics.length < schematicLimit)
-                  schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
-              });
-            }
-          });
-
-          if (docType === 'crane_explain') {
-            kbContext += "--- END KB CONTEXT ---\n\nThe user wants an EXPLANATION of the crane circuit, not just images.\nIMPORTANT RULES:\n1. Do NOT draw ASCII circuits.\n2. Give a FULL technical explanation of how the main hoist/luffing circuit works:\n   - Describe the main components (pump, motor, DCV, CBV, brake valve)\n   - Explain the flow path for hoisting and lowering\n   - State typical pressure settings\n   - Explain the safety function (counterbalance valve role)\n3. Keep explanation under 200 words.\n4. The PNG circuit images are shown BELOW your explanation as visual reference.";
-          } else if (docType === 'circuit') {
-            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT RULES:\n1. Do NOT draw ASCII circuits. The hydraulic circuit PNG images are displayed below.\n2. Write 2-3 sentences ONLY: what circuit is shown and which document it comes from.\n3. Max 60 words. The images ARE the answer.";
-          } else if (docType === 'pages') {
-            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 1-2 sentences identifying the document. The PNG pages are shown below. Max 30 words.";
-          } else {
-            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 2-3 sentences identifying what these document pages show. The PNG images are displayed below. Max 50 words.";
-          }
-          directHit = true;
-        }
-      }
-    }
-
-    // ── GENERAL KB SEARCH (when no direct hit) ───────────────────────────
-    let found = directHit;
-    let chunks = [];
-    if (!directHit) {
-      const topK = schematicMode === 'visual' ? 3 : 5;
-      const result = await searchKBInternal(question, topK);
-      chunks = result.chunks; found = result.found;
-
-      if (found && chunks.length > 0) {
-        kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
-        chunks.forEach(c => {
-          kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand?' | Brand:'+c.brand:''}\n${(c.searchable_text||'').substring(0,1500)}\n`;
-          if (schematics.length === 0 && schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-            c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
-              if (schematics.length < schematicLimit)
-                schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
-            });
-          }
-        });
-        if (schematicMode === 'visual') {
-          kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write 2-3 sentences describing what document these images come from. PNG images shown below. Max 50 words.";
-        } else if (schematicMode === 'context') {
-          kbContext += "--- END KB CONTEXT ---\n\nProvide full technical explanation. Do NOT draw ASCII art — schematic PNG images are shown separately.";
-        } else {
-          // For troubleshooting/fault questions, add reference to relevant KB docs
-          const isTroubleQ = /\b(why|fault|problem|fail|not working|chattering|slow|leak|noise|hot|over|no pressure|low pressure|stuck|not build|not shift|vibrat|alarm|trip)\b/.test(q_lower);
-          if (isTroubleQ) {
-            kbContext += "--- END KB CONTEXT ---\n\nThis is a FAULT DIAGNOSIS question. IMPORTANT:\n1. Use your engineering reasoning FIRST — identify the most likely root cause from first principles.\n2. Reference the KB context for specific procedures, settings, or OEM data.\n3. The KB includes: Hydraulic Troubleshooting guides (KB286), How to Solve Hydraulic Problems (KB281/KB282), Logical Troubleshooting (KB108), and crane-specific guides (KB104).\n4. Answer with: Most likely cause → Physical reasoning → 2-3 alternatives → Ask if they want step-by-step.\n5. Do NOT list every possible cause — give the ONE most likely based on symptoms.";
-          } else {
-            kbContext += "--- END KB CONTEXT ---\n\nProvide a complete, logical technical answer based on engineering reasoning.";
-          }
-        }
-      }
+    } else {
+      // No KB match — use pure engineering knowledge
+      kbContext = `\n\n--- NO KB MATCH — USE ENGINEERING KNOWLEDGE ---\nAnswer from first principles using your deep hydraulic/crane expertise. Be specific about OEM models and values.`;
     }
 
     const enhancedSystem = (system || "") + kbContext;
@@ -799,7 +665,9 @@ app.post("/api/kb/chat", async (req, res) => {
       return res.status(response.status).json({ error: data });
     }
 
-    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length, schematics, schematicMode });
+    // Always return empty schematics — AI Advisor is text-only
+    // Full manuals/schematics are available in the Knowledge Base
+    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length, schematics: [], schematicMode: 'text' });
   } catch (e) {
     console.error("kb/chat error:", e.message);
     res.status(500).json({ error: e.message });
