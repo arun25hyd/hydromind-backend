@@ -320,7 +320,7 @@ async function searchKBInternal(question, topK = 5) {
   try {
     const { data: chunks, error } = await supabase
       .from("kb_chunks")
-      .select("id, doc_name, category, content, embedding");
+      .select("id, kb_id, doc_name, category, brand, component_type, content, schematic_ids, schematic_count, tags");
     if (error || !chunks || chunks.length === 0) return { chunks: [], found: false };
 
     const qWords = question.toLowerCase()
@@ -431,10 +431,23 @@ app.post("/api/kb/chat", async (req, res) => {
     const { chunks, found } = await searchKBInternal(question, 5);
 
     let kbContext = "";
+    let schematics = [];
     if (found && chunks.length > 0) {
       kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT (from uploaded documents) ---\n";
-      chunks.forEach(c => { kbContext += `\n[${c.category} — ${c.doc_name}]\n${c.content}\n`; });
-      kbContext += "--- END KB CONTEXT ---\n\nUse the above KB context to answer. If context is relevant, prioritise it.";
+      chunks.forEach(c => {
+        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}${c.component_type ? ' | Type: '+c.component_type : ''}\n${c.content}\n`;
+        if (Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
+          c.schematic_ids.slice(0,3).forEach(imgFile => {
+            schematics.push({
+              filename: imgFile,
+              url: `https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/${imgFile}`,
+              doc: c.doc_name,
+              category: c.category
+            });
+          });
+        }
+      });
+      kbContext += "--- END KB CONTEXT ---\n\nUse the above KB context to answer. If context is relevant, prioritise it. If schematics are available, mention them to the user.";
     }
 
     const enhancedSystem = (system || "") + kbContext;
@@ -461,7 +474,7 @@ app.post("/api/kb/chat", async (req, res) => {
       return res.status(response.status).json({ error: data });
     }
 
-    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length });
+    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length, schematics });
   } catch (e) {
     console.error("kb/chat error:", e.message);
     res.status(500).json({ error: e.message });
