@@ -674,6 +674,23 @@ If full document pages are needed, mention: "→ Full manual available in the Hy
   }
 });
 
+// ── FEEDBACK ENDPOINT ─────────────────────────────────────────────────────
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { msg_id, vote, question, answer, mode, timestamp } = req.body;
+    if (!msg_id || !vote) return res.status(400).json({ error: 'msg_id and vote required' });
+    const { error } = await supabase.from('ai_feedback').insert({
+      msg_id, vote, question: (question||'').substring(0,500),
+      answer: (answer||'').substring(0,500), mode: mode||'hyd',
+      created_at: timestamp || new Date().toISOString()
+    });
+    if (error) { console.error('Feedback insert error:', error.message); }
+    res.json({ ok: true });
+  } catch(e) {
+    res.json({ ok: false }); // silent — non-critical
+  }
+});
+
 // HydroMind KB Upload Webhook
 app.post('/webhook/kb-upload', async function(req, res) {
   try {
