@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.9" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v6.0" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -563,26 +563,41 @@ function classifyQuery(question) {
 }
 
 // ── CIRCUIT vs DATASHEET document routing ────────────────────────────────
-// When user asks for "X circuit", route to circuit books NOT component datasheets
-// Component datasheets (pump manuals etc) contain dimensions/specs, NOT circuit diagrams
+// When user asks for "X circuit", route to correct docs AND correct page offset
+// Format: { kbIds, pageOffset, pageCount }
+// pageOffset = which page index to start from (0-based)
+// pageCount = how many pages to show (default 3)
+// CIRCUIT_DOCUMENT_MAP: { kbIds, pageOffset, pageCount }
+// pageOffset = 0-based index of first circuit diagram page in the document
+// pageCount  = number of circuit pages to show (default 3)
 const CIRCUIT_DOCUMENT_MAP = {
-  // Pump model → circuit book KB IDs (KB283 = Hydraulic Circuits book, KB105 = Schematic PDF)
-  'a4vg':            ['KB116','KB117'],
-  'a10v':            ['KB134'],
-  'counterbalance':  ['KB201','KB283'],
-  'cbv':             ['KB201','KB283'],
-  'a4vso':    ['KB283','KB105'],
-  'series 90':['KB283','KB105'],
-  'serie 90': ['KB283','KB105'],
-  'closed loop':['KB283','KB105'],
-  'open loop': ['KB283','KB105'],
-  'hoist circuit':   ['KB115','KB110','KB109','KB114'],
-  'slew circuit':    ['KB115','KB110','KB109'],
-  'luffing circuit': ['KB115','KB110','KB114'],
-  'crane circuit':   ['KB115','KB110','KB109','KB114'],
-  'winch circuit':   ['KB103','KB274','KB115'],
-  'hpu circuit':     ['KB283','KB105'],
-  'pilot circuit':   ['KB283','KB105'],
+  // A4VG: circuit diagrams are at pages 60-63 of the 74-page datasheet
+  'a4vg':          { kbIds: ['KB116','KB117'], pageOffset: 59, pageCount: 4 },
+  // A10VSO: circuit diagrams in their manual
+  'a10v':          { kbIds: ['KB134'],          pageOffset: 0,  pageCount: 3 },
+  // Danfoss Series 90: circuit diagrams
+  'series 90':     { kbIds: ['KB119','KB141'],  pageOffset: 0,  pageCount: 3 },
+  'serie 90':      { kbIds: ['KB119','KB141'],  pageOffset: 0,  pageCount: 3 },
+  'danfoss 90':    { kbIds: ['KB119','KB141'],  pageOffset: 0,  pageCount: 3 },
+  // PVG32 proportional valve circuit
+  'pvg32':         { kbIds: ['KB196'],           pageOffset: 0,  pageCount: 3 },
+  'pvg':           { kbIds: ['KB196'],           pageOffset: 0,  pageCount: 3 },
+  // Counterbalance valve — all pages are circuit-relevant
+  'counterbalance':{ kbIds: ['KB201'],           pageOffset: 0,  pageCount: 4 },
+  'cbv':           { kbIds: ['KB201'],           pageOffset: 0,  pageCount: 4 },
+  // Crane system circuits from OEM manuals
+  'hoist circuit': { kbIds: ['KB115','KB109','KB110'], pageOffset: 0, pageCount: 3 },
+  'slew circuit':  { kbIds: ['KB115','KB110','KB109'], pageOffset: 0, pageCount: 3 },
+  'luffing':       { kbIds: ['KB115','KB110','KB114'], pageOffset: 0, pageCount: 3 },
+  'crane circuit': { kbIds: ['KB109','KB110','KB114'], pageOffset: 0, pageCount: 3 },
+  'winch circuit': { kbIds: ['KB103','KB274'],    pageOffset: 0,  pageCount: 3 },
+  // Generic hydraulic circuits
+  'hpu circuit':   { kbIds: ['KB283','KB105'],   pageOffset: 0,  pageCount: 3 },
+  'pilot circuit': { kbIds: ['KB283'],            pageOffset: 0,  pageCount: 3 },
+  'closed loop':   { kbIds: ['KB283','KB105'],   pageOffset: 0,  pageCount: 3 },
+  'open loop':     { kbIds: ['KB283','KB105'],   pageOffset: 0,  pageCount: 3 },
+  'load sensing':  { kbIds: ['KB283'],            pageOffset: 0,  pageCount: 3 },
+  'hydraulic schematic': { kbIds: ['KB283','KB105'], pageOffset: 0, pageCount: 3 },
 };
 
 // Component datasheets — when user says "show me A4VG" without "circuit"
@@ -635,10 +650,18 @@ app.post("/api/kb/chat", async (req, res) => {
       // ── ROUTE: circuit request → circuit books, datasheet → component docs
       let targetKbIds = null;
 
+      let circuitPageOffset = 0;  // which page to start from for circuit mode
+      let circuitPageCount = 3;   // how many pages to show
+
       if (docType === 'circuit') {
-        // Look for circuit-specific routing first
-        for (const [pattern, ids] of Object.entries(CIRCUIT_DOCUMENT_MAP)) {
-          if (q_lower.includes(pattern)) { targetKbIds = ids; break; }
+        // Look for circuit-specific routing with optional page offset
+        for (const [pattern, entry] of Object.entries(CIRCUIT_DOCUMENT_MAP)) {
+          if (q_lower.includes(pattern)) {
+            targetKbIds = entry.kbIds || entry;  // support both old array and new object format
+            circuitPageOffset = entry.pageOffset || 0;
+            circuitPageCount  = entry.pageCount  || 3;
+            break;
+          }
         }
         // If no specific circuit route, fall back to general KB search
       } else if (docType === 'datasheet' || docType === 'pages') {
@@ -663,7 +686,11 @@ app.post("/api/kb/chat", async (req, res) => {
           directDocs.forEach(c => {
             kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,400)}\n`;
             if (Array.isArray(c.schematic_ids) && schematics.length < schematicLimit) {
-              c.schematic_ids.slice(0, schematicLimit - schematics.length).forEach(imgFile => {
+              // For circuit mode: use pageOffset to show the correct circuit pages
+              // For datasheet mode: always start from page 1 (index 0)
+              const pageStart = (docType === 'circuit') ? circuitPageOffset : 0;
+              const pageEnd   = pageStart + (docType === 'circuit' ? circuitPageCount : schematicLimit);
+              c.schematic_ids.slice(pageStart, pageEnd).forEach(imgFile => {
                 if (schematics.length < schematicLimit)
                   schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
               });
