@@ -363,15 +363,29 @@ async function searchKBInternal(question, topK = 5) {
     }
     if (!chunks || chunks.length === 0) return { chunks: [], found: false };
 
-    // Re-rank by keyword frequency
+    // Re-rank by keyword frequency + relevance boosts
     const scored = chunks.map(chunk => {
-      const text = (chunk.searchable_text || chunk.content || "").toLowerCase();
-      const title = (chunk.doc_name || "").toLowerCase();
+      const text   = (chunk.searchable_text || chunk.content || "").toLowerCase();
+      const title  = (chunk.doc_name || "").toLowerCase();
+      const comp   = (chunk.component_type || "").toLowerCase();
+      const cat    = (chunk.category || "").toLowerCase();
       let score = 0;
       for (const word of qWords) {
+        // Content frequency
         score += (text.match(new RegExp(word, "g")) || []).length;
-        score += (title.match(new RegExp(word, "g")) || []).length * 3;
+        // Title match — higher weight
+        score += (title.match(new RegExp(word, "g")) || []).length * 4;
+        // Component type exact match — very high boost
+        if (comp.includes(word)) score += 20;
+        // Category match — medium boost
+        if (cat.includes(word)) score += 5;
       }
+      // Phrase boost — if original question phrase appears in title
+      const phrase = question.toLowerCase().replace(/[^a-z0-9 ]/g," ").trim();
+      if (title.includes(phrase.substring(0, 20))) score += 30;
+      // Penalise non-specific entries (e.g. general troubleshooting guides)
+      if (title.includes("troubleshooting guide") && !phrase.includes("troubleshooting guide")) score = Math.max(0, score - 10);
+      if (title.includes("industrial hydraulics") && qWords.length > 2) score = Math.max(0, score - 8);
       return { ...chunk, score };
     });
 
@@ -499,7 +513,8 @@ app.post("/api/kb/chat", async (req, res) => {
     //               'context' = full text + supporting schematics
     //               'text'    = text only, no schematics
 
-    const { chunks, found } = await searchKBInternal(question, 5);
+    const topK = schematicMode === 'visual' ? 3 : 5;
+    const { chunks, found } = await searchKBInternal(question, topK);
 
     let kbContext = "";
     let schematics = [];
@@ -530,9 +545,9 @@ app.post("/api/kb/chat", async (req, res) => {
 
       // Tailor the instruction to the AI based on mode
       if (schematicMode === 'visual') {
-        kbContext += "--- END KB CONTEXT ---\n\nThe user is requesting a schematic or circuit diagram. Provide a very brief introduction (2-3 sentences) then let the schematic images speak for themselves. Do not write long explanations.";
+        kbContext += "--- END KB CONTEXT ---\n\nThe user is requesting a schematic or circuit diagram. IMPORTANT RULES FOR THIS RESPONSE:\n1. Do NOT draw ASCII art, text diagrams, or character-based circuits — these are useless.\n2. Write ONLY 2-3 sentences identifying what documents the schematics come from.\n3. The actual circuit images are shown separately as PNG schematics below your text.\n4. Keep your response under 50 words total.";
       } else if (schematicMode === 'context') {
-        kbContext += "--- END KB CONTEXT ---\n\nProvide a full technical explanation. Schematic images will be shown alongside your answer for visual reference.";
+        kbContext += "--- END KB CONTEXT ---\n\nProvide a full technical explanation. IMPORTANT: Do NOT draw ASCII art, text diagrams, or character-based circuits in your response. Schematic images from the knowledge base are shown separately as PNG images below your text.";
       } else {
         kbContext += "--- END KB CONTEXT ---\n\nProvide a complete technical text answer. No schematics needed for this query.";
       }
