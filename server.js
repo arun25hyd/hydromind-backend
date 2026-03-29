@@ -328,21 +328,53 @@ async function getEmbedding(text) {
   }
 }
 
-// ── INTERNAL KB SEARCH (no localhost call) ────────────────────────────────
-async function searchKBInternal(question, topK = 5) {
+const SUPABASE_SCHEM_URL = 'https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/';
+
+// ── MODEL → KB ID DIRECT LOOKUP MAP ──────────────────────────────────────────
+const MODEL_MAP = [
+  { patterns: ['a4vg','a4vg56','a4vg90','a4vg125','a4vg180'], kbIds: ['KB116','KB117'] },
+  { patterns: ['a10v','a10vso','a10vo'],          kbIds: ['KB134'] },
+  { patterns: ['a4vso'],                          kbIds: ['KB130'] },
+  { patterns: ['a20vlo'],                         kbIds: ['KB128'] },
+  { patterns: ['a4csg'],                          kbIds: ['KB135'] },
+  { patterns: ['a2fo'],                           kbIds: ['KB129'] },
+  { patterns: ['a6vm'],                           kbIds: ['KB151'] },
+  { patterns: ['mrt','mre'],                      kbIds: ['KB153'] },
+  { patterns: ['series 90','serie 90','s90 pump'],kbIds: ['KB119','KB141','KB154'] },
+  { patterns: ['series 45','serie 45'],           kbIds: ['KB142'] },
+  { patterns: ['f11','f12','parker f11'],         kbIds: ['KB124'] },
+  { patterns: ['pvg32','pvg 32'],                 kbIds: ['KB196'] },
+  { patterns: ['pvg120','pvg 120'],               kbIds: ['KB167','KB312'] },
+  { patterns: ['rexroth we','we6 dcv','we dcv'],  kbIds: ['KB189'] },
+  { patterns: ['counterbalance','cbv','vickers cbv','eaton cbv'], kbIds: ['KB201'] },
+  { patterns: ['favco','favelle'],                kbIds: ['KB115'] },
+  { patterns: ['seatrax'],                        kbIds: ['KB110'] },
+  { patterns: ['macgregor','hmc2201'],            kbIds: ['KB109'] },
+  { patterns: ['nov ahc','knuckle boom'],         kbIds: ['KB114'] },
+  { patterns: ['amclyde','model 52'],             kbIds: ['KB102'] },
+  { patterns: ['braden winch','braden ch'],       kbIds: ['KB103','KB274'] },
+  { patterns: ['vt-hacd','vt hacd'],              kbIds: ['KB317'] },
+  { patterns: ['vtvpcd'],                         kbIds: ['KB318'] },
+  { patterns: ['vt-varp','vt varp','varp1'],      kbIds: ['KB309'] },
+  { patterns: ['pvres','pvrel'],                  kbIds: ['KB311'] },
+  { patterns: ['danfoss pvg','pvg proportional'], kbIds: ['KB196','KB167','KB312'] },
+  { patterns: ['rexroth a4vg'],                   kbIds: ['KB116','KB117'] },
+  { patterns: ['kawasaki k3vl'],                  kbIds: ['KB121'] },
+  { patterns: ['oilgear','pvm-62','pvm62'],       kbIds: ['KB123','KB144'] },
+];
+
+// ── CLEAN searchKBInternal — keyword search + scoring only ────────────────────
+async function searchKBInternal(question, topK) {
+  topK = topK || 5;
   try {
-    // Build keyword list from question
     const qWords = question.toLowerCase()
       .replace(/[^a-z0-9 ]/g, " ")
       .split(/\s+/)
       .filter(w => w.length > 2)
-      .slice(0, 6); // max 6 keywords
+      .slice(0, 6);
 
     if (qWords.length === 0) return { chunks: [], found: false };
 
-    // SQL full-text search — fetch only matching rows (avoids loading all 277 rows)
-    // Build a single OR filter: each keyword checked across doc_name and searchable_text
-    // PostgREST or() syntax: comma-separated conditions, all in one string
     const conditions = [];
     for (const w of qWords) {
       conditions.push(`doc_name.ilike.%${w}%`);
@@ -351,173 +383,45 @@ async function searchKBInternal(question, topK = 5) {
     }
     const orFilter = conditions.join(',');
 
-    // ── DIRECT MODEL LOOKUP ─────────────────────────────────────────────────
-    // For visual mode: if a specific model/brand name is in the question,
-    // try to find that exact document first before general search
-    const q_lower = question.toLowerCase();
-    
-    // Model-to-KB mapping for direct document lookup
-    const MODEL_MAP = [
-      { patterns: ['a4vg','a4vg56','a4vg90','a4vg125','a4vg180'], kbIds: ['KB116','KB117'] },
-      { patterns: ['a10v','a10vso','a10vo'],                        kbIds: ['KB134'] },
-      { patterns: ['a4vso'],                                         kbIds: ['KB130'] },
-      { patterns: ['a20vlo'],                                        kbIds: ['KB128'] },
-      { patterns: ['a4csg'],                                         kbIds: ['KB135'] },
-      { patterns: ['a2fo'],                                          kbIds: ['KB129'] },
-      { patterns: ['a6vm'],                                          kbIds: ['KB151'] },
-      { patterns: ['mrt','mre'],                                     kbIds: ['KB153'] },
-      { patterns: ['series 90','serie 90','danfoss 90'],             kbIds: ['KB119','KB141','KB154'] },
-      { patterns: ['series 45','serie 45'],                          kbIds: ['KB142'] },
-      { patterns: ['parker f11','parker f12','f11','f12'],           kbIds: ['KB124'] },
-      { patterns: ['pvg32','pvg 32'],                                kbIds: ['KB196'] },
-      { patterns: ['pvg120','pvg 120'],                              kbIds: ['KB167','KB168','KB312'] },
-      { patterns: ['rexroth we','we6','we dcv'],                     kbIds: ['KB189'] },
-      { patterns: ['counterbalance','cbv','eaton cbv','vickers cbv'],kbIds: ['KB201'] },
-      { patterns: ['favco','favelle'],                               kbIds: ['KB115'] },
-      { patterns: ['seatrax'],                                       kbIds: ['KB110'] },
-      { patterns: ['macgregor','hmc2201'],                           kbIds: ['KB109'] },
-      { patterns: ['nov ahc','knuckle boom'],                        kbIds: ['KB114'] },
-      { patterns: ['amclyde','model 52'],                            kbIds: ['KB102'] },
-      { patterns: ['braden winch','braden'],                         kbIds: ['KB103','KB274'] },
-      { patterns: ['vt-hacd','vt hacd'],                             kbIds: ['KB317'] },
-      { patterns: ['vtvpcd','vt vpcd'],                              kbIds: ['KB318'] },
-      { patterns: ['vt-varp','vt varp'],                             kbIds: ['KB309'] },
-      { patterns: ['pvres','pvrel','danfoss joystick'],               kbIds: ['KB311'] },
-      { patterns: ['hydraulic schematic','hydraulic circuit','circuit diagram'], kbIds: ['KB283','KB105'] },
-    ];
-
-    // Check for direct model match
-    let directKbIds = null;
-    for (const entry of MODEL_MAP) {
-      if (entry.patterns.some(p => q_lower.includes(p))) {
-        directKbIds = entry.kbIds;
-        break;
-      }
-    }
-
-    // If direct match found and in visual mode, fetch those specific docs first
-    if (directKbIds && schematicMode === 'visual') {
-      const idFilter = directKbIds.map(id => `kb_id.eq.${id}`).join(',');
-      const { data: directDocs } = await supabase
-        .from("kb_chunks")
-        .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
-        .or(idFilter);
-      if (directDocs && directDocs.length > 0) {
-        // Direct docs found — use them, skip general search
-        const top = { chunks: directDocs, found: true };
-        console.log(`Direct model lookup: ${directKbIds} → ${directDocs.map(d=>d.doc_name).join(', ')}`);
-        // Build response from direct docs
-        kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
-        directDocs.forEach(c => {
-          kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,500)}\n`;
-          if (Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-            c.schematic_ids.slice(0, 12).forEach(imgFile => {
-              if (schematics.length < schematicLimit) {
-                schematics.push({
-                  filename: imgFile,
-                  url: `https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/${imgFile}`,
-                  doc: c.doc_name,
-                  category: c.category,
-                });
-              }
-            });
-          }
-        });
-        kbContext += "--- END KB CONTEXT ---\n\nThe user is requesting a schematic or circuit diagram. IMPORTANT RULES:\n1. Do NOT draw ASCII art, text diagrams, or character-based circuits.\n2. Write ONLY 2-3 sentences identifying what document these schematics come from.\n3. The PNG schematic images are shown separately below your text.\n4. Keep your response under 60 words total.";
-        const enhancedSystem = (system || "") + kbContext;
-        const messages = [...history, { role: "user", content: question }];
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-          body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 200, system: enhancedSystem, messages })
-        });
-        const data = await response.json();
-        if (!response.ok) return res.status(response.status).json({ error: data });
-        return res.json({ ...data, kbUsed: true, kbChunkCount: directDocs.length, schematics, schematicMode });
-      }
-    }
-
-    // ── GENERAL SEARCH (fallback) ─────────────────────────────────────────
-    // Detect if query implies a specific category — use it to filter candidates
-    let categoryFilter = null;
-    if (/\b(pump|a4vg|a10v|danfoss|kawasaki|piston pump|gear pump|vane pump|series 90)/.test(q_lower)) categoryFilter = 'pump';
-    else if (/\b(motor|a6vm|radial motor|lsht|torqmotor|wheel motor)/.test(q_lower)) categoryFilter = 'motor';
-    else if (/\b(valve|dcv|directional|counterbalance|relief|check valve|pvg|proportional valve|servo valve|cbv)/.test(q_lower)) categoryFilter = 'valve';
-    else if (/\b(crane|favco|seatrax|macgregor|nov ahc|liebherr|offshore crane|hoist|slew|luffing|winch)/.test(q_lower)) categoryFilter = 'crane_hydraulic';
-    else if (/\b(plc|solenoid|amplifier|proportional card|vt-hacd|electrical|siemens|joystick)/.test(q_lower)) categoryFilter = 'electrical_plc';
-    else if (/\b(filter|accumulator|cooler|heat exchanger|breather|accessories)/.test(q_lower)) categoryFilter = 'accessories';
-
-    let query = supabase
+    const { data: allRows, error } = await supabase
       .from("kb_chunks")
       .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
       .or(orFilter)
       .limit(20);
 
-    // If category detected, prefer that category — run two queries and merge
-    let primaryChunks = [], secondaryChunks = [];
-    if (categoryFilter) {
-      const { data: primary } = await supabase
-        .from("kb_chunks")
-        .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
-        .or(orFilter)
-        .eq("category", categoryFilter)
-        .limit(15);
-      primaryChunks = primary || [];
-    }
-    const { data: allChunks, error } = await query;
-    if (error) {
-      console.error('KB search error:', error.message);
-      return { chunks: [], found: false };
-    }
-    // Merge: primary (category match) first, then fill from all
-    const seen = new Set(primaryChunks.map(c => c.kb_id));
-    secondaryChunks = (allChunks || []).filter(c => !seen.has(c.kb_id));
-    const chunks = [...primaryChunks, ...secondaryChunks].slice(0, 20);
+    if (error) { console.error('KB search error:', error.message); return { chunks: [], found: false }; }
+    if (!allRows || allRows.length === 0) return { chunks: [], found: false };
 
-    if (error) {
-      console.error('KB search error:', error.message, '| filter:', orFilter.substring(0,100));
-      return { chunks: [], found: false };
-    }
-    if (!chunks || chunks.length === 0) return { chunks: [], found: false };
-
-    // Re-rank by keyword frequency + relevance boosts
-    const scored = chunks.map(chunk => {
-      const text   = (chunk.searchable_text || chunk.content || "").toLowerCase();
-      const title  = (chunk.doc_name || "").toLowerCase();
-      const comp   = (chunk.component_type || "").toLowerCase();
-      const cat    = (chunk.category || "").toLowerCase();
+    // Score each chunk
+    const scored = allRows.map(chunk => {
+      const text  = (chunk.searchable_text || "").toLowerCase();
+      const title = (chunk.doc_name || "").toLowerCase();
+      const comp  = (chunk.component_type || "").toLowerCase();
+      const cat   = (chunk.category || "").toLowerCase();
       let score = 0;
       for (const word of qWords) {
-        // Content frequency
         score += (text.match(new RegExp(word, "g")) || []).length;
-        // Title match — higher weight
         score += (title.match(new RegExp(word, "g")) || []).length * 4;
-        // Component type exact match — very high boost
         if (comp.includes(word)) score += 20;
-        // Category match — medium boost
         if (cat.includes(word)) score += 5;
       }
-      // Phrase boost — if original question phrase appears in title
       const phrase = question.toLowerCase().replace(/[^a-z0-9 ]/g," ").trim();
       if (title.includes(phrase.substring(0, 20))) score += 30;
-      // Penalise non-specific entries (e.g. general troubleshooting guides)
       if (title.includes("troubleshooting guide") && !phrase.includes("troubleshooting guide")) score = Math.max(0, score - 10);
       if (title.includes("industrial hydraulics") && qWords.length > 2) score = Math.max(0, score - 8);
       return { ...chunk, score };
     });
 
-    const top = scored
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK)
-      .filter(c => c.score > 0);
-
-    console.log(`KB search: "${question.slice(0,50)}" — candidates: ${chunks.length}, matched: ${top.length}`);
+    const top = scored.sort((a,b) => b.score - a.score).slice(0, topK).filter(c => c.score > 0);
+    console.log(`KB search: "${question.slice(0,50)}" — candidates: ${allRows.length}, matched: ${top.length}, top: ${top[0]?.doc_name?.slice(0,30)}`);
     return { chunks: top, found: top.length > 0 };
   } catch (e) {
     console.error("searchKBInternal error:", e.message);
     return { chunks: [], found: false };
   }
 }
+
+
 
 // ══════════════════════════════════════════════════════════════════════════
 // DOCUMENT UPLOAD
@@ -630,48 +534,75 @@ app.post("/api/kb/chat", async (req, res) => {
     //               'context' = full text + supporting schematics
     //               'text'    = text only, no schematics
 
-    const topK = schematicMode === 'visual' ? 3 : 5;
-    const { chunks, found } = await searchKBInternal(question, topK);
-
-    let kbContext = "";
+    // ── SCHEMATIC LIMIT ──────────────────────────────────────────────────────
     let schematics = [];
-    let schematicLimit = 0; // how many schematics to return
+    let kbContext  = "";
+    const schematicLimit = schematicMode === 'visual' ? 12 : schematicMode === 'context' ? 4 : 0;
 
-    if (schematicMode === 'visual')   schematicLimit = 12; // show up to 12 pages
-    if (schematicMode === 'context')  schematicLimit = 4;  // max 4 supporting images
-    if (schematicMode === 'text')     schematicLimit = 0;  // no images
-
-    if (found && chunks.length > 0) {
-      kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
-      chunks.forEach(c => {
-        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${(c.searchable_text || '').substring(0,1500)}\n`;
-        if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-          // In visual mode: only use schematics from the top-scoring doc (first in sorted list)
-          // In context mode: allow up to 2 per doc
-          const isTopDoc = schematics.length === 0;
-          const docLimit = schematicMode === 'visual'
-            ? (isTopDoc ? schematicLimit : 0)          // visual: all from top doc only
-            : Math.min(2, schematicLimit - schematics.length); // context: max 2 per doc
-          c.schematic_ids.slice(0, docLimit).forEach(imgFile => {
-            if (schematics.length < schematicLimit) {
-              schematics.push({
-                filename: imgFile,
-                url: `https://frqefpoheewbornozvhc.supabase.co/storage/v1/object/public/schematics/${imgFile}`,
-                doc: c.doc_name,
-                category: c.category,
-              });
-            }
-          });
+    // ── DIRECT MODEL LOOKUP (visual mode only) ────────────────────────────
+    // If the question names a specific component/model, go straight to that KB document
+    let directHit = false;
+    if (schematicMode === 'visual') {
+      const q_lower = question.toLowerCase();
+      for (const entry of MODEL_MAP) {
+        if (entry.patterns.some(p => q_lower.includes(p))) {
+          const idFilter = entry.kbIds.map(id => `kb_id.eq.${id}`).join(',');
+          const { data: directDocs } = await supabase
+            .from("kb_chunks")
+            .select("kb_id, doc_name, category, brand, searchable_text, schematic_ids, schematic_count")
+            .or(idFilter);
+          if (directDocs && directDocs.length > 0) {
+            console.log(`Direct lookup hit: ${entry.patterns[0]} → ${directDocs.map(d=>d.doc_name).join(', ')}`);
+            kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
+            directDocs.forEach(c => {
+              kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,400)}\n`;
+              if (Array.isArray(c.schematic_ids)) {
+                c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
+                  if (schematics.length < schematicLimit) {
+                    schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
+                  }
+                });
+              }
+            });
+            kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art. Write ONLY 1-2 sentences saying where these schematics come from. The PNG images are displayed below. Max 40 words.";
+            directHit = true;
+          }
+          break;
         }
-      });
+      }
+    }
 
-      // Tailor the instruction to the AI based on mode
-      if (schematicMode === 'visual') {
-        kbContext += "--- END KB CONTEXT ---\n\nThe user is requesting a schematic or circuit diagram. IMPORTANT RULES FOR THIS RESPONSE:\n1. Do NOT draw ASCII art, text diagrams, or character-based circuits — these are useless.\n2. Write ONLY 2-3 sentences identifying what documents the schematics come from.\n3. The actual circuit images are shown separately as PNG schematics below your text.\n4. Keep your response under 50 words total.";
-      } else if (schematicMode === 'context') {
-        kbContext += "--- END KB CONTEXT ---\n\nProvide a full technical explanation. IMPORTANT: Do NOT draw ASCII art, text diagrams, or character-based circuits in your response. Schematic images from the knowledge base are shown separately as PNG images below your text.";
-      } else {
-        kbContext += "--- END KB CONTEXT ---\n\nProvide a complete technical text answer. No schematics needed for this query.";
+    // ── GENERAL KB SEARCH (fallback) ─────────────────────────────────────
+    let found = directHit;
+    let chunks = [];
+    if (!directHit) {
+      const topK = schematicMode === 'visual' ? 3 : 5;
+      const result = await searchKBInternal(question, topK);
+      chunks = result.chunks;
+      found  = result.found;
+
+      if (found && chunks.length > 0) {
+        kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
+        chunks.forEach(c => {
+          kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${(c.searchable_text || '').substring(0,1500)}\n`;
+          if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
+            const isTopDoc = schematics.length === 0;
+            const docLimit = schematicMode === 'visual'
+              ? (isTopDoc ? schematicLimit : 0)
+              : Math.min(2, schematicLimit - schematics.length);
+            c.schematic_ids.slice(0, docLimit).forEach(imgFile => {
+              if (schematics.length < schematicLimit)
+                schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
+            });
+          }
+        });
+        if (schematicMode === 'visual') {
+          kbContext += "--- END KB CONTEXT ---\n\nIMPORTANT: Do NOT draw ASCII art or text circuits. Write ONLY 2-3 sentences about what documents these schematics come from. PNG images are shown below. Max 50 words.";
+        } else if (schematicMode === 'context') {
+          kbContext += "--- END KB CONTEXT ---\n\nProvide full technical explanation. Do NOT draw ASCII art — schematic PNG images are shown separately below your text.";
+        } else {
+          kbContext += "--- END KB CONTEXT ---\n\nProvide a complete technical text answer.";
+        }
       }
     }
 
