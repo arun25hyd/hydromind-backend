@@ -351,11 +351,42 @@ async function searchKBInternal(question, topK = 5) {
     }
     const orFilter = conditions.join(',');
 
-    const { data: chunks, error } = await supabase
+    // Detect if query implies a specific category — use it to filter candidates
+    const q_lower = question.toLowerCase();
+    let categoryFilter = null;
+    if (/\b(pump|a4vg|a10v|danfoss|kawasaki|piston pump|gear pump|vane pump|series 90)/.test(q_lower)) categoryFilter = 'pump';
+    else if (/\b(motor|a6vm|radial motor|lsht|torqmotor|wheel motor)/.test(q_lower)) categoryFilter = 'motor';
+    else if (/\b(valve|dcv|directional|counterbalance|relief|check valve|pvg|proportional valve|servo valve|cbv)/.test(q_lower)) categoryFilter = 'valve';
+    else if (/\b(crane|favco|seatrax|macgregor|nov ahc|liebherr|offshore crane|hoist|slew|luffing|winch)/.test(q_lower)) categoryFilter = 'crane_hydraulic';
+    else if (/\b(plc|solenoid|amplifier|proportional card|vt-hacd|electrical|siemens|joystick)/.test(q_lower)) categoryFilter = 'electrical_plc';
+    else if (/\b(filter|accumulator|cooler|heat exchanger|breather|accessories)/.test(q_lower)) categoryFilter = 'accessories';
+
+    let query = supabase
       .from("kb_chunks")
       .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
       .or(orFilter)
       .limit(20);
+
+    // If category detected, prefer that category — run two queries and merge
+    let primaryChunks = [], secondaryChunks = [];
+    if (categoryFilter) {
+      const { data: primary } = await supabase
+        .from("kb_chunks")
+        .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
+        .or(orFilter)
+        .eq("category", categoryFilter)
+        .limit(15);
+      primaryChunks = primary || [];
+    }
+    const { data: allChunks, error } = await query;
+    if (error) {
+      console.error('KB search error:', error.message);
+      return { chunks: [], found: false };
+    }
+    // Merge: primary (category match) first, then fill from all
+    const seen = new Set(primaryChunks.map(c => c.kb_id));
+    secondaryChunks = (allChunks || []).filter(c => !seen.has(c.kb_id));
+    const chunks = [...primaryChunks, ...secondaryChunks].slice(0, 20);
 
     if (error) {
       console.error('KB search error:', error.message, '| filter:', orFilter.substring(0,100));
