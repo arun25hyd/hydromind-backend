@@ -318,24 +318,36 @@ async function getEmbedding(text) {
 // ── INTERNAL KB SEARCH (no localhost call) ────────────────────────────────
 async function searchKBInternal(question, topK = 5) {
   try {
-    const { data: chunks, error } = await supabase
-      .from("kb_chunks")
-      .select("id, kb_id, doc_name, category, brand, component_type, content, schematic_ids, schematic_count, tags");
-    if (error || !chunks || chunks.length === 0) return { chunks: [], found: false };
-
+    // Build keyword list from question
     const qWords = question.toLowerCase()
       .replace(/[^a-z0-9 ]/g, " ")
       .split(/\s+/)
-      .filter(w => w.length > 2);
+      .filter(w => w.length > 2)
+      .slice(0, 6); // max 6 keywords
 
+    if (qWords.length === 0) return { chunks: [], found: false };
+
+    // SQL full-text search — fetch only matching rows (avoids loading all 277 rows)
+    const orFilter = qWords
+      .map(w => `content.ilike.%${w}%,doc_name.ilike.%${w}%,tags.cs.{${w}}`)
+      .join(",");
+
+    const { data: chunks, error } = await supabase
+      .from("kb_chunks")
+      .select("id, kb_id, doc_name, category, brand, component_type, content, schematic_ids, schematic_count, tags")
+      .or(orFilter)
+      .limit(20); // fetch top 20 candidates then re-rank
+
+    if (error || !chunks || chunks.length === 0) return { chunks: [], found: false };
+
+    // Re-rank by keyword frequency
     const scored = chunks.map(chunk => {
       const text = (chunk.content || "").toLowerCase();
       const title = (chunk.doc_name || "").toLowerCase();
       let score = 0;
       for (const word of qWords) {
-        const inContent = (text.match(new RegExp(word, "g")) || []).length;
-        const inTitle = (title.match(new RegExp(word, "g")) || []).length;
-        score += inContent * 1 + inTitle * 3;
+        score += (text.match(new RegExp(word, "g")) || []).length;
+        score += (title.match(new RegExp(word, "g")) || []).length * 3;
       }
       return { ...chunk, score };
     });
@@ -345,7 +357,7 @@ async function searchKBInternal(question, topK = 5) {
       .slice(0, topK)
       .filter(c => c.score > 0);
 
-    console.log(`KB keyword search: "${question.slice(0,50)}" — chunks found: ${top.length}, top score: ${top[0]?.score || 0}`);
+    console.log(`KB search: "${question.slice(0,50)}" — candidates: ${chunks.length}, matched: ${top.length}`);
     return { chunks: top, found: top.length > 0 };
   } catch (e) {
     console.error("searchKBInternal error:", e.message);
