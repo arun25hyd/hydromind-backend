@@ -328,13 +328,14 @@ async function searchKBInternal(question, topK = 5) {
     if (qWords.length === 0) return { chunks: [], found: false };
 
     // SQL full-text search — fetch only matching rows (avoids loading all 277 rows)
+    // Search on searchable_text (lightweight) + doc_name + tags
     const orFilter = qWords
-      .map(w => `content.ilike.%${w}%,doc_name.ilike.%${w}%,tags.cs.{${w}}`)
+      .map(w => `searchable_text.ilike.%${w}%,doc_name.ilike.%${w}%`)
       .join(",");
 
     const { data: chunks, error } = await supabase
       .from("kb_chunks")
-      .select("id, kb_id, doc_name, category, brand, component_type, content, schematic_ids, schematic_count, tags")
+      .select("id, kb_id, doc_name, category, brand, component_type, searchable_text, schematic_ids, schematic_count, tags")
       .or(orFilter)
       .limit(20); // fetch top 20 candidates then re-rank
 
@@ -342,7 +343,7 @@ async function searchKBInternal(question, topK = 5) {
 
     // Re-rank by keyword frequency
     const scored = chunks.map(chunk => {
-      const text = (chunk.content || "").toLowerCase();
+      const text = (chunk.searchable_text || chunk.content || "").toLowerCase();
       const title = (chunk.doc_name || "").toLowerCase();
       let score = 0;
       for (const word of qWords) {
@@ -447,7 +448,7 @@ app.post("/api/kb/chat", async (req, res) => {
     if (found && chunks.length > 0) {
       kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT (from uploaded documents) ---\n";
       chunks.forEach(c => {
-        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}${c.component_type ? ' | Type: '+c.component_type : ''}\n${c.content}\n`;
+        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}${c.component_type ? ' | Type: '+c.component_type : ''}\n${(c.searchable_text || c.content || '').substring(0,1500)}\n`;
         if (Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
           c.schematic_ids.slice(0,3).forEach(imgFile => {
             schematics.push({
