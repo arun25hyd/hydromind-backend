@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "direct-lookup-v5.4" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.5" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -537,7 +537,10 @@ app.post("/api/kb/chat", async (req, res) => {
     // ── SCHEMATIC LIMIT ──────────────────────────────────────────────────────
     let schematics = [];
     let kbContext  = "";
-    const schematicLimit = schematicMode === 'visual' ? 12 : schematicMode === 'context' ? 4 : 0;
+    // visual = up to 6 pages from ONE document only (clean, not a mixed KB dump)
+    // context = up to 4 supporting images from top doc only
+    // text = no images
+    const schematicLimit = schematicMode === 'visual' ? 6 : schematicMode === 'context' ? 4 : 0;
 
     // ── DIRECT MODEL LOOKUP (visual mode only) ────────────────────────────
     // If the question names a specific component/model, go straight to that KB document
@@ -585,12 +588,10 @@ app.post("/api/kb/chat", async (req, res) => {
         kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
         chunks.forEach(c => {
           kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${(c.searchable_text || '').substring(0,1500)}\n`;
-          if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-            const isTopDoc = schematics.length === 0;
-            const docLimit = schematicMode === 'visual'
-              ? (isTopDoc ? schematicLimit : 0)
-              : Math.min(2, schematicLimit - schematics.length);
-            c.schematic_ids.slice(0, docLimit).forEach(imgFile => {
+          // Only take schematics from the FIRST (top-scoring) document
+          // This keeps the result clean — one relevant document, not a mixed KB dump
+          if (schematics.length === 0 && schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
+            c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
               if (schematics.length < schematicLimit)
                 schematics.push({ filename: imgFile, url: SUPABASE_SCHEM_URL + imgFile, doc: c.doc_name, category: c.category });
             });
