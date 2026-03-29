@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json({ limit: "2mb" }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.8" }));
+app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "deep-think-v5.9" }));
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -544,8 +544,13 @@ function classifyQuery(question) {
   // Datasheet = wants the component spec/manual — but NOT if 'circuit' is in query
   if (!hasCircuit) {
     for (const p of DATASHEET_PATTERNS) { if (q.includes(p)) return { mode:'visual', docType:'datasheet', limit:4 }; }
-    // "show me [model]" or "show me the [model]" without circuit keyword → datasheet
-    if (q.startsWith('show me') || q.startsWith('open') || q.startsWith('display')) {
+    // "show me [component]" without circuit keyword → datasheet
+    // BUT exclude fault/troubleshooting questions: not/fault/why/problem/issue/pressure/error/fail
+    const FAULT_WORDS = ['not ','fault','why ','problem','issue','fail','error','chattering',
+                          'slow','hot','overheat','leak','noise','vibrat','trip','alarm',
+                          'pressure drop','no flow','low pressure','high pressure','stuck'];
+    const isFaultQ = FAULT_WORDS.some(w => q.includes(w));
+    if (!isFaultQ && (q.startsWith('show me') || q.startsWith('open') || q.startsWith('display'))) {
       return { mode:'visual', docType:'datasheet', limit:4 };
     }
   }
@@ -562,8 +567,8 @@ function classifyQuery(question) {
 // Component datasheets (pump manuals etc) contain dimensions/specs, NOT circuit diagrams
 const CIRCUIT_DOCUMENT_MAP = {
   // Pump model → circuit book KB IDs (KB283 = Hydraulic Circuits book, KB105 = Schematic PDF)
-  'a4vg':            ['KB283','KB105','KB116'],
-  'a10v':            ['KB283','KB105'],
+  'a4vg':            ['KB116','KB117'],
+  'a10v':            ['KB134'],
   'counterbalance':  ['KB201','KB283'],
   'cbv':             ['KB201','KB283'],
   'a4vso':    ['KB283','KB105'],
