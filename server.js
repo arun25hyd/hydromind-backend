@@ -410,8 +410,8 @@ async function searchKBInternal(question, topK = 5) {
         kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
         directDocs.forEach(c => {
           kbContext += `\n[${c.category} — ${c.doc_name}]\n${(c.searchable_text||'').substring(0,500)}\n`;
-          if (schematicLimit > 0 && Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
-            c.schematic_ids.slice(0, schematicLimit).forEach(imgFile => {
+          if (Array.isArray(c.schematic_ids) && c.schematic_ids.length > 0) {
+            c.schematic_ids.slice(0, 12).forEach(imgFile => {
               if (schematics.length < schematicLimit) {
                 schematics.push({
                   filename: imgFile,
