@@ -119,12 +119,15 @@ app.post("/api/chat", async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 // NEWS ENDPOINT — web search for hydraulic industry news with image scraping
 // ══════════════════════════════════════════════════════════════════════════
-app.get("/api/news", async (req, res) => {
+app.post("/api/news", async (req, res) => {
   try {
-    const newsPrompt = `Search hpmag.co.uk and hydraulicspneumatics.com for the 6 most recent hydraulic industry news articles published in 2025 or 2026. For each article include the direct URL and any image URL found.
-Return ONLY a JSON array, no markdown, no extra text:
-[{"title":"article headline","source":"hpmag.co.uk","url":"https://full-url","date":"DD Mon YYYY","summary":"2 sentence technical summary","tag":"PUMPS","image":"https://image-url-or-empty"}]
-Tags must be one of: PUMPS VALVES SEALS CONTROLS FILTRATION INDUSTRY`;
+    const newsPrompt = `Search the web and find 15 real recent news articles (2025 or 2026) for hydraulic engineers and crane technicians. Cover these 5 categories: hydraulics, cranes, offshore, oilgas, engineering.
+
+Return ONLY a raw JSON array, no markdown, no explanation, nothing else:
+[{"cat":"hydraulics","title":"Real headline","summary":"2-3 sentence technical summary","source":"Publisher name","date":"Mar 2026","url":"https://real-article-url.com/path"}]
+
+cat must be exactly one of: hydraulics, cranes, offshore, oilgas, engineering
+Return 15 articles total. Real headlines, real URLs, real sources only.`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -145,34 +148,30 @@ Tags must be one of: PUMPS VALVES SEALS CONTROLS FILTRATION INDUSTRY`;
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json({ error: data });
 
-    // Extract text from ALL content blocks — web_search returns mixed types
-    let fullText = "";
-    if (Array.isArray(data.content)) {
-      for (const block of data.content) {
-        if (block.type === "text") fullText += block.text;
-        // tool_result blocks may contain text too
-        if (block.type === "tool_result" && Array.isArray(block.content)) {
-          for (const inner of block.content) {
-            if (inner.type === "text") fullText += inner.text;
-          }
-        }
-      }
+    // Extract text blocks only
+    let raw = "";
+    for (const block of (data.content || [])) {
+      if (block.type === "text") raw += block.text;
     }
 
-    // Extract JSON array from response
-    const clean = fullText.replace(/```json|```/g, "").trim();
-    const match = clean.match(/\[\s*\{[\s\S]*\}\s*\]/);
-    if (match) {
-      try {
-        const articles = JSON.parse(match[0]);
-        if (Array.isArray(articles) && articles.length > 0) {
-          return res.json({ articles });
-        }
-      } catch (e) { /* fall through to fallback */ }
-    }
+    // Pull out the JSON array
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) return res.status(500).json({ error: "No JSON in response", raw: raw.slice(0, 300) });
 
-    // Fallback: return raw text so frontend can debug
-    res.json({ articles: [], raw: fullText.substring(0, 500) });
+    const articles = JSON.parse(match[0]);
+    const valid = ["hydraulics","cranes","offshore","oilgas","engineering"];
+    const cleaned = articles
+      .filter(a => a.title && a.summary && valid.includes(a.cat))
+      .map(a => ({
+        cat:     String(a.cat).trim(),
+        title:   String(a.title).trim(),
+        summary: String(a.summary).trim(),
+        source:  String(a.source || "Industry").trim(),
+        date:    String(a.date || "2026").trim(),
+        url:     String(a.url || "#").trim()
+      }));
+
+    res.json({ articles: cleaned });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
