@@ -139,14 +139,17 @@ Return 15 articles total. Real headlines, real URLs, real sources only.`;
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-5",
-        max_tokens: 2000,
+        max_tokens: 4000,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: [{ role: "user", content: newsPrompt }]
       }),
     });
 
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: data });
+    if (!response.ok) {
+      console.error("[/api/news] Anthropic error:", JSON.stringify(data));
+      return res.status(response.status).json({ error: data });
+    }
 
     // Extract text blocks only
     let raw = "";
@@ -154,11 +157,24 @@ Return 15 articles total. Real headlines, real URLs, real sources only.`;
       if (block.type === "text") raw += block.text;
     }
 
-    // Pull out the JSON array
-    const match = raw.match(/\[[\s\S]*\]/);
-    if (!match) return res.status(500).json({ error: "No JSON in response", raw: raw.slice(0, 300) });
+    console.log("[/api/news] Raw response length:", raw.length);
 
-    const articles = JSON.parse(match[0]);
+    // Strip markdown fences if present, then extract JSON array
+    const stripped = raw.replace(/```json|```/g, "").trim();
+    const match = stripped.match(/\[[\s\S]*\]/);
+    if (!match) {
+      console.error("[/api/news] No JSON array found. Raw:", raw.slice(0, 400));
+      return res.status(500).json({ error: "No JSON in response", raw: raw.slice(0, 400) });
+    }
+
+    let articles;
+    try {
+      articles = JSON.parse(match[0]);
+    } catch (parseErr) {
+      console.error("[/api/news] JSON parse error:", parseErr.message);
+      return res.status(500).json({ error: "JSON parse failed: " + parseErr.message });
+    }
+
     const valid = ["hydraulics","cranes","offshore","oilgas","engineering"];
     const cleaned = articles
       .filter(a => a.title && a.summary && valid.includes(a.cat))
@@ -171,8 +187,10 @@ Return 15 articles total. Real headlines, real URLs, real sources only.`;
         url:     String(a.url || "#").trim()
       }));
 
+    console.log("[/api/news] Returning", cleaned.length, "articles");
     res.json({ articles: cleaned });
   } catch (e) {
+    console.error("[/api/news] Exception:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
