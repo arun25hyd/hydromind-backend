@@ -115,36 +115,6 @@ app.post("/api/chat", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-
-// ══════════════════════════════════════════════════════════════════════════
-// NEWS ENDPOINT — web search for hydraulic industry news with image scraping
-// ══════════════════════════════════════════════════════════════════════════
-app.post("/api/news", async (req, res) => {
-  try {
-    const newsPrompt = `Search the web and find 15 real recent news articles (2025 or 2026) for hydraulic engineers and crane technicians. Cover these 5 categories: hydraulics, cranes, offshore, oilgas, engineering.
-
-Return ONLY a raw JSON array, no markdown, no explanation, nothing else:
-[{"cat":"hydraulics","title":"Real headline","summary":"2-3 sentence technical summary","source":"Publisher name","date":"Mar 2026","url":"https://real-article-url.com/path"}]
-
-cat must be exactly one of: hydraulics, cranes, offshore, oilgas, engineering
-Return 15 articles total. Real headlines, real URLs, real sources only.`;
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "web-search-2025-03-05",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 4000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{ role: "user", content: newsPrompt }]
-      }),
-    });
-
     const data = await response.json();
     if (!response.ok) {
       console.error("[/api/news] Anthropic error:", JSON.stringify(data));
