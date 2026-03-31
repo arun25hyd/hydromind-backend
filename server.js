@@ -115,56 +115,6 @@ app.post("/api/chat", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-    const data = await response.json();
-    if (!response.ok) {
-      console.error("[/api/news] Anthropic error:", JSON.stringify(data));
-      return res.status(response.status).json({ error: data });
-    }
-
-    // Extract text blocks only
-    let raw = "";
-    for (const block of (data.content || [])) {
-      if (block.type === "text") raw += block.text;
-    }
-
-    console.log("[/api/news] Raw response length:", raw.length);
-
-    // Strip markdown fences if present, then extract JSON array
-    const stripped = raw.replace(/```json|```/g, "").trim();
-    const match = stripped.match(/\[[\s\S]*\]/);
-    if (!match) {
-      console.error("[/api/news] No JSON array found. Raw:", raw.slice(0, 400));
-      return res.status(500).json({ error: "No JSON in response", raw: raw.slice(0, 400) });
-    }
-
-    let articles;
-    try {
-      articles = JSON.parse(match[0]);
-    } catch (parseErr) {
-      console.error("[/api/news] JSON parse error:", parseErr.message);
-      return res.status(500).json({ error: "JSON parse failed: " + parseErr.message });
-    }
-
-    const valid = ["hydraulics","cranes","offshore","oilgas","engineering"];
-    const cleaned = articles
-      .filter(a => a.title && a.summary && valid.includes(a.cat))
-      .map(a => ({
-        cat:     String(a.cat).trim(),
-        title:   String(a.title).trim(),
-        summary: String(a.summary).trim(),
-        source:  String(a.source || "Industry").trim(),
-        date:    String(a.date || "2026").trim(),
-        url:     String(a.url || "#").trim()
-      }));
-
-    console.log("[/api/news] Returning", cleaned.length, "articles");
-    res.json({ articles: cleaned });
-  } catch (e) {
-    console.error("[/api/news] Exception:", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
 
 // ══════════════════════════════════════════════════════════════════════════
 // PASSWORD RESET — send reset link via Supabase Auth email
