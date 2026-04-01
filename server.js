@@ -7,6 +7,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
+const { helmetMiddleware, chatLimiter, authLimiter, kbSearchLimiter, generalLimiter, validateChatRequest, validateAuthRequest, validateKBChatRequest, safeError, enforceWebhookSecret, requestLogger } = require("./security");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +26,8 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:8080',
 ];
+app.use(helmetMiddleware);
+app.use(requestLogger);
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);  // allow server-to-server
@@ -39,6 +42,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: "2mb" }));
+app.use(generalLimiter);
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "text-only-v7.0" }));
@@ -60,7 +64,7 @@ const authMiddleware = (req, res, next) => {
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH ROUTES
 // ══════════════════════════════════════════════════════════════════════════
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", authLimiter, validateAuthRequest, async (req, res) => {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: "All fields required" });
@@ -77,7 +81,7 @@ app.post("/api/auth/register", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authLimiter, validateAuthRequest, async (req, res) => {
   try {
     const { email, password } = req.body;
     const { data: user } = await supabase.from("users").select("*").eq("email", email.toLowerCase()).single();
@@ -92,7 +96,7 @@ app.post("/api/auth/login", async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 // AI CHAT PROXY
 // ══════════════════════════════════════════════════════════════════════════
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", chatLimiter, validateChatRequest, async (req, res) => {
   try {
     const { model, max_tokens, system, messages, tools } = req.body;
     if (!messages) return res.status(400).json({ error: "messages required" });
@@ -420,7 +424,7 @@ app.delete("/api/kb/documents/:id", authMiddleware, async (req, res) => {
 });
 
 // ── KB Search endpoint (HTTP)
-app.post("/api/kb/search", async (req, res) => {
+app.post("/api/kb/search", kbSearchLimiter, async (req, res) => {
   try {
     const { question, topK = 5 } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
@@ -511,7 +515,7 @@ async function getKbContextForQuestion(question, topK) {
   return await searchKBInternal(question, topK);
 }
 
-app.post("/api/kb/chat", async (req, res) => {
+app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, async (req, res) => {
   try {
     const { question, history = [], system } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
@@ -629,12 +633,8 @@ app.post('/api/feedback', async (req, res) => {
 });
 
 // HydroMind KB Upload Webhook
-app.post('/webhook/kb-upload', async function(req, res) {
+app.post('/webhook/kb-upload', enforceWebhookSecret, async function(req, res) {
   try {
-    var secret = req.headers['x-webhook-secret'];
-    if (process.env.WEBHOOK_SECRET && secret !== process.env.WEBHOOK_SECRET) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
     var record = (req.body && req.body.record) ? req.body.record : {};
     var docId = record.id;
     var docName = record.name ? record.name : ('Document_' + docId);
