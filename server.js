@@ -19,6 +19,30 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// ── KB QUERY CACHE (in-memory LRU) ─────────────────────────────────────────
+// Reduces Supabase egress/API calls significantly.
+// TTL: 10 minutes. Max: 200 entries. Keyed by normalised question string.
+const KB_CACHE = new Map();
+const KB_CACHE_TTL  = 10 * 60 * 1000; // 10 min
+const KB_CACHE_MAX  = 200;
+
+function kbCacheGet(key) {
+  const entry = KB_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > KB_CACHE_TTL) { KB_CACHE.delete(key); return null; }
+  return entry.value;
+}
+function kbCacheSet(key, value) {
+  if (KB_CACHE.size >= KB_CACHE_MAX) {
+    // Evict oldest entry
+    KB_CACHE.delete(KB_CACHE.keys().next().value);
+  }
+  KB_CACHE.set(key, { value, ts: Date.now() });
+}
+function kbCacheKey(question) {
+  return question.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 // ── CORS ───────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = [
   'https://hydromindai.com',
@@ -46,6 +70,15 @@ app.use(generalLimiter);
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "text-only-v7.0" }));
+
+// ── KB CACHE STATS (admin) ──────────────────────────────────────────────────
+app.get("/api/cache/stats", (req, res) => {
+  res.json({ entries: KB_CACHE.size, maxEntries: KB_CACHE_MAX, ttlMs: KB_CACHE_TTL });
+});
+app.post("/api/cache/clear", enforceWebhookSecret, (req, res) => {
+  KB_CACHE.clear();
+  res.json({ ok: true, message: "KB cache cleared" });
+});
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -493,6 +526,13 @@ const KB_ROUTE_MAP = [
 ];
 
 async function getKbContextForQuestion(question, topK) {
+  const cacheKey = kbCacheKey(question);
+  const cached = kbCacheGet(cacheKey);
+  if (cached) {
+    console.log(`KB cache HIT: "${question.slice(0,50)}"`);
+    return cached;
+  }
+
   const q = question.toLowerCase();
 
   // 1. Try direct KB routing by component/model name
@@ -505,14 +545,18 @@ async function getKbContextForQuestion(question, topK) {
         .or(idFilter);
       if (data && data.length > 0) {
         console.log(`KB route hit: ${entry.p[0]} → ${data.map(d=>d.doc_name.slice(0,25)).join(', ')}`);
-        return { chunks: data, found: true, source: 'direct' };
+        const result = { chunks: data, found: true, source: 'direct' };
+        kbCacheSet(cacheKey, result);
+        return result;
       }
       break;
     }
   }
 
   // 2. Fallback: general keyword search
-  return await searchKBInternal(question, topK);
+  const result = await searchKBInternal(question, topK);
+  kbCacheSet(cacheKey, result);
+  return result;
 }
 
 app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, async (req, res) => {
