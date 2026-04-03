@@ -85,6 +85,17 @@ app.post("/api/cache/clear", enforceWebhookSecret, (req, res) => {
   res.json({ ok: true, message: "KB cache cleared" });
 });
 
+// ── KEEP-ALIVE SELF-PING — prevents Render free tier from sleeping ──────────
+// Pings the server every 10 minutes so it never goes idle
+setInterval(async () => {
+  try {
+    await fetch('https://hydromind-backend.onrender.com/');
+    console.log('[keep-alive] ping sent');
+  } catch (e) {
+    console.log('[keep-alive] ping failed:', e.message);
+  }
+}, 10 * 60 * 1000); // every 10 minutes
+
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
 // ══════════════════════════════════════════════════════════════════════════
