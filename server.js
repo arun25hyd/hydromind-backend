@@ -16,15 +16,20 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 // ── SUPABASE CLIENT ────────────────────────────────────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.SUPABASE_SERVICE_KEY,
+  {
+    db: { schema: 'public' },
+    global: { headers: { 'x-connection-encrypted': 'true' } },
+    auth: { persistSession: false }
+  }
 );
 
 // ── KB QUERY CACHE (in-memory LRU) ─────────────────────────────────────────
 // Reduces Supabase egress/API calls significantly.
 // TTL: 10 minutes. Max: 200 entries. Keyed by normalised question string.
 const KB_CACHE = new Map();
-const KB_CACHE_TTL  = 10 * 60 * 1000; // 10 min
-const KB_CACHE_MAX  = 200;
+const KB_CACHE_TTL  = 60 * 60 * 1000; // 60 min — Supabase Pro, no egress concern
+const KB_CACHE_MAX  = 500;             // Increased from 200 — more headroom on Pro
 
 function kbCacheGet(key) {
   const entry = KB_CACHE.get(key);
