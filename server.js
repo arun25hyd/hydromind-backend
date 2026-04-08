@@ -55,6 +55,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:8080',
 ];
+app.set('trust proxy', 1); // Required on Render — ensures req.ip reflects real client IP, not load-balancer IP, so rate limiting works correctly
 app.use(helmetMiddleware);
 app.use(requestLogger);
 app.use(cors({
@@ -76,8 +77,8 @@ app.use(generalLimiter);
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "text-only-v7.0" }));
 
-// ── KB CACHE STATS (admin) ──────────────────────────────────────────────────
-app.get("/api/cache/stats", (req, res) => {
+// ── KB CACHE STATS (admin — protected by webhook secret) ──────────────────
+app.get("/api/cache/stats", enforceWebhookSecret, (req, res) => {
   res.json({ entries: KB_CACHE.size, maxEntries: KB_CACHE_MAX, ttlMs: KB_CACHE_TTL });
 });
 app.post("/api/cache/clear", enforceWebhookSecret, (req, res) => {
