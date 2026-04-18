@@ -540,6 +540,10 @@ const KB_ROUTE_MAP = [
   { p: ['load sensing service','ls service manual'],               k: ['KB296'] },
   // Circuit books
   { p: ['hydraulic circuit book','circuit manual'],                k: ['KB283','KB105'] },
+
+  // KB58 — Idelchik Hydraulic Resistance Handbook
+  { p: ['pressure drop','pressure loss','idelchik','hydraulic resistance','friction factor','pipe sizing','orifice sizing','discharge coefficient','resistance coefficient','bend loss','elbow loss','pipe loss','fitting loss','manifold pressure','tee resistance','valve resistance coefficient','darcy','weisbach','reynolds number','flow velocity','pipe bore','line sizing'],
+    k: ['KB58'] },
 ];
 
 async function getKbContextForQuestion(question, topK) {
