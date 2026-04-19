@@ -541,6 +541,50 @@ const KB_ROUTE_MAP = [
   // Circuit books
   { p: ['hydraulic circuit book','circuit manual'],                k: ['KB283','KB105'] },
 
+  // KB70 — IFPS Hydraulic Specialist Study Guide
+  { p: ['hydraulic formula','pump flow formula','motor speed formula','cylinder force formula','horsepower formula','Cv formula valve','Barlow formula','tubing wall thickness','safety factor tubing','conductor velocity','inlet line velocity','return line velocity','pressure line velocity','suction line rule','accumulator sizing','isothermal accumulator','general gas law accumulator','intensifier pressure','reservoir heat','seal compatibility','nitrile seal','viton seal','polyurethane seal','silicone seal','neoprene seal','amplifier card','enable signal','command signal','ramp generator','dither generator','gain adjustment','null adjustment','proportional solenoid','viscosity too high','viscosity too low','viscosity index mobile','IFPS formula'],
+    k: ['KB70'] },
+
+  // KB69 — Zappe Valve Selection Handbook
+  { p: ['valve selection','Cv Kv','flow coefficient valve','resistance coefficient valve','zeta valve','cavitation valve','cavitation index','waterhammer','water hammer','Joukowsky','valve closure pressure','check valve selection','swing check','tilting disc check','lift check','check valve closing','pressure relief valve','safety relief valve','PRV sizing','pilot operated relief','set pressure','overpressure','blowdown','built-up back pressure','3% inlet loss','discharge piping relief','balanced bellows','conventional relief valve','relief valve terminology','rupture disc'],
+    k: ['KB69'] },
+
+  // KB68 — Cundiff Fluid Power Circuits and Controls
+  { p: ['ISO 4406 cleanliness','target cleanliness','cleanliness code','ISO cleanliness chart','beta ratio filter','filter efficiency','multipass filter','pressure line filter','return line filter','offline filter','non-bypass filter','filter placement','filter sizing','charge pump sizing','charge pump flow','cross port relief','shuttle valve hydrostatic','multipurpose valve','counterbalance setting','CBV setting','proportional valve dither','servo valve cleanliness','spool silting','silting valve','contamination gear pump','contamination vane pump','contamination piston pump'],
+    k: ['KB68'] },
+
+  // KB67 — Bloch Improving Machinery Reliability
+  { p: ['bearing failure causes','bearing lubrication','L10 life','bearing life','anti-friction bearing','rolling element bearing','water in oil bearing','minimum viscosity bearing','ISO VG bearing','oil mist lubrication','automatic grease','manual grease','bearing temperature limit','pump condition monitor','vibration transducer','proximity probe','velocity transducer','accelerometer pump','pipe stress nozzle','piping load equipment','hot alignment','thermal growth','predictive maintenance statistics','MTBF pump','run to failure','bearing contamination','SKF bearing failure'],
+    k: ['KB67'] },
+
+  // KB66 — Vickers Logical Troubleshooting
+  { p: ['logical troubleshooting','flow pressure direction','8 step procedure','algorithm test','algo test','pump cavitation FCR','aeration FCR','case drain measurement','case drain flow','pressure gauge installation','multi-symptom','common cause','multi-point selector','quick release test point','systematic fault','hit and miss','circuit diagram analysis','vickers logical','hydraulic fault isolation'],
+    k: ['KB66'] },
+
+  // KB65 — Vickers Hydraulic Hints
+  { p: ['chart noise','chart heat','chart pressure','chart flow','faulty operation','pump noisy','pump heated','motor heated','fluid heated','relief valve noisy','no flow','no pressure','low pressure','erratic pressure','slow movement','no movement','erratic movement','aeration causes','seal material','viton nitrile polyurethane','hydraulic formula','pipe schedule','tubing velocity','125 psi valve setting','contamination effects','vickers hints'],
+    k: ['KB65'] },
+
+  // KB64 — Mobley Root Cause Failure Analysis
+  { p: ['root cause','RCFA','fault tree','fishbone','failure mode analysis','FMEA','5 why','sequence of events','incident report','equipment failure investigation','cavitation pump','pump runout','total system head','seal failure','gearbox failure','control valve failure','packing failure','mechanical seal','why did it fail','repeat failure','recurring fault'],
+    k: ['KB64'] },
+
+  // KB63 — Cameron Hydraulic Data
+  { p: ['NPSH','net positive suction','suction head','affinity law','pump speed change','impeller trim','pump power','hydraulic horsepower','brake horsepower','unit conversion hydraulic','psi to bar','bar to psi','gpm to lpm','lpm to gpm','velocity head','reynolds pump','pump head pressure','cameron hydraulic','head calculation'],
+    k: ['KB63'] },
+
+  // KB62 — Mobley Predictive Maintenance
+  { p: ['oil analysis','oil sample','wear particle','ferrograph','spectrograph','vibration analysis','vibration monitoring','case drain temperature','case drain flow','bearing frequency','gear mesh frequency','vane pass','imbalance','misalignment vibration','thermography','infrared hydraulic','P-F curve','predictive maintenance','condition monitoring','BPFO','BPFI','TAN','TBN','ISO 4406 hydraulic','iron content oil','silicon content oil','copper oil','rubbing wear','cutting wear','rolling fatigue','oil sampling','lube oil','hydraulic oil analysis'],
+    k: ['KB62'] },
+
+  // KB61 — Albers Motion Control Offshore and Dredging
+  { p: ['heave compensation','heave compensator','AHC','PHC','passive heave','active heave','riser tensioner','drill pipe compensator','secondary drive','primary drive','open loop winch','closed loop winch','winch motor free fall','winch runaway','subsea hydraulic','subsea drive','nitrogen accumulator','crane gas spring','motion reference unit','MRU','feed forward control','CETOP sizing','CBV setting 130','pilot ratio','asymmetric spool','offshore winch','offshore drive design','motion control offshore'],
+    k: ['KB61'] },
+
+  // KB60 — Hehn Fluid Power Troubleshooting
+  { p: ['system inoperative','no flow','erratic operation','operates slowly','system slow','no drive','pump no pressure','pump dead','valve sticking','spool stuck','relief chattering','water hammer','milky oil','oil foaming','aeration','air in system','contamination fault','filter bypass','troubleshooting guide','servo valve fault','proportional fault','dither','gain setting'],
+    k: ['KB60'] },
+
   // KB58 — Idelchik Hydraulic Resistance Handbook
   { p: ['pressure drop','pressure loss','idelchik','hydraulic resistance','friction factor','pipe sizing','orifice sizing','discharge coefficient','resistance coefficient','bend loss','elbow loss','pipe loss','fitting loss','manifold pressure','tee resistance','valve resistance coefficient','darcy','weisbach','reynolds number','flow velocity','pipe bore','line sizing'],
     k: ['KB58'] },
