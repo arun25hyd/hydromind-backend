@@ -5900,3 +5900,136 @@ Verify: σ_net < σ_allowable (250 MPa yield for SA36, with safety factor applie
 Added: KB76 (Zhang & Qin — Basics of Hydraulic Systems), KB77 (Cundiff — Fluid Power Circuits & Controls), KB78 (Cylinder Design Calculation Reference)
 Topics added: Orifice equation, Bernoulli continuity, pump corner power and LS, cylinder differential extension, double-rod equal speed, cylinder cushions, motor starting torque, HST VP-FM/VP-VM configurations, HST closed-circuit faults, Lamé barrel thickness equations, cylinder length formula, oil volume calculation, piston rod material table, chrome/HVOF/ceramic plating comparison, contamination oil analysis table, servo valve bandwidth, proportional valve open vs closed loop, regenerative circuit, pressure intensifier
 Next KB: KB79
+
+
+---
+
+## KB79 — Fluid Power Control (Blackburn, Reethof, Shearer — MIT Press)
+**Source:** Fluid Power Control — Edited by John F. Blackburn, Gerhard Reethof, J. Lowen Shearer
+**Publisher:** The MIT Press, Cambridge, Massachusetts
+**Note:** Classic foundational text — servo valve theory, transfer functions, closed-loop stability. Document is fully image-scanned (3,623 pages); KB built from engineering knowledge of this reference.
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.12**
+
+### KB79-1 — Valve Flow Equations (Blackburn)
+
+**Linearised 4-way Critical-Centre Spool Valve:**
+Q_L = K_q × x_v − K_c × P_L
+
+- Q_L = load flow to actuator
+- x_v = spool displacement (proportional to input signal)
+- P_L = load pressure differential across actuator
+- K_q = flow gain: ∂Q/∂x_v at constant P_L → determines actuator speed per unit spool stroke
+- K_c = pressure-flow coefficient: ∂Q/∂P_L at constant x_v → represents leakage sensitivity
+
+**Flow Gain:** K_q = Cd × w × √(P_s / ρ)
+- Cd = 0.611 (sharp-edged orifice)
+- w = valve port width (area gradient m²/m)
+- P_s = supply pressure | ρ = fluid density
+
+**K_c physical meaning:** Higher K_c = more leakage = softer pressure response. Servo valves: very low K_c (close-tolerance lapping). Proportional valves: slightly higher K_c.
+
+### KB79-2 — Valve Lap Effects
+
+| Lap Type | Description | Effect | Application |
+|---|---|---|---|
+| **Positive overlap** | Lands longer than port → dead band at null | Holds load at null — no flow until spool moves past overlap | Crane hoist neutral load holding |
+| **Critical centre (zero lap)** | Lands exactly match port | No dead band, some null leakage | Ideal servo — difficult to manufacture |
+| **Underlap** | Lands shorter → port partially open at null | No dead band but actuator drifts under load | Smooth through-null response |
+
+**Crane rule:** Hoist prop valve: small positive overlap (0.5–2% stroke) → holds load at neutral without brake.
+Slew prop valve: zero or slight underlap → smooth deceleration through null without jerk.
+
+### KB79-3 — Hydraulic Natural Frequency
+
+**ω_h = √(4β_e × A_p² / (V_t × m_t))**
+
+- β_e = effective bulk modulus (fluid + hose compliance)
+- A_p = piston area
+- V_t = total trapped fluid volume (both actuator sides)
+- m_t = piston + load mass
+
+Higher β_e → stiffer fluid → higher ω_h → better response.
+Larger V_t (long hoses) → lower ω_h → sluggish response.
+**Rule:** ω_h must be > 2–3× control bandwidth.
+
+**Hydraulic Damping Ratio (ζ_h):** Typical = 0.1–0.2 (very lightly damped).
+Hydraulic actuators ring (oscillate) when excited. Add derivative (D) gain in PID to increase damping.
+
+### KB79-4 — Effective Bulk Modulus
+
+1/β_e = 1/β_fluid + 1/β_hose + 1/β_structure
+
+| Medium | Bulk Modulus |
+|---|---|
+| Pure mineral oil | 1,500–1,700 MPa |
+| Oil with 1% dissolved air | 700–900 MPa |
+| Oil + standard hose | 600–800 MPa |
+| Oil + long flexible hose | 300–500 MPa |
+
+**Field implication:** Long hose runs → lower β_e → lower ω_h → slower, softer response.
+Spongy crane control = air in fluid OR long flexible hose. Bleed and flush to restore stiffness.
+AHC systems: keep working hose lengths minimal, use rigid manifolds where possible.
+
+### KB79-5 — Closed-Loop Stability Rules
+
+**Stability Margins:**
+- Phase margin > 45° → robust stable | >30° → acceptable | <15° → risk of oscillation
+- Gain margin > 6 dB → stable
+
+**Velocity Constant (K_v = loop gain):**
+K_v_max ≈ ζ_h × ω_h
+Set operating K_v at 50–60% of maximum for adequate margin.
+
+**Supply Pressure Rule:** Load pressure must not exceed 2/3 of supply pressure for maximum power transfer. Above 2/3 → valve flow drops → power delivered falls.
+
+**Practical Stability Commissioning:**
+1. Start with low amplifier gain
+2. Increase until actuator just begins to oscillate
+3. Set gain at 50–60% of critical gain
+4. Add D-term (derivative) to PID to improve damping
+5. Re-check at temperature extremes (viscosity change affects loop gain)
+
+### KB79-6 — Leakage Flow Formula
+
+**Laminar gap leakage (spool clearance):**
+Q_leak = (b × h³ × ΔP) / (12 × μ × L)
+- b = circumferential length ≈ π × d (spool diameter)
+- h = radial clearance (2–8 µm servo; 8–15 µm proportional)
+- μ = dynamic viscosity
+- L = land length (axial)
+
+**Key:** Leakage ∝ h³ — small wear increase → large leakage increase.
+Internal leakage (cross-port): actuator drifts at neutral → check spool wear, valve condition.
+
+### KB79-7 — Servo System Bandwidth Hierarchy
+
+ω_valve > 3 × ω_h > 3 × ω_control
+
+Valve must respond faster than hydraulics, which must be faster than control loop.
+
+**Reynolds Number Rule:**
+- Re < 2300: laminar → use gap formula (Q ∝ ΔP × h³/μ)
+- Re > 2300: turbulent → use orifice formula (Q ∝ Cd × A × √ΔP)
+- Valve orifice flow: turbulent (Re >> 2300) → use orifice equation
+- Spool clearance leakage: laminar (Re << 2300) → use gap formula
+
+### KB79-8 — Connecting Theory to Offshore Crane Practice
+
+| Blackburn Theory | Field Implementation | Crane Example |
+|---|---|---|
+| K_q (flow gain) | Valve sensitivity to joystick | Rexroth 4WRZE: 60 L/min per 100% signal |
+| K_c (leakage coefficient) | Valve internal leakage | LVDT spool: very low K_c → stiff load holding |
+| ω_h (hydraulic nat. freq) | System bandwidth limit | Liebherr hoist: ω_h ≈ 15–40 rad/s |
+| ζ_h (hydraulic damping) | Oscillation tendency | Offshore: ζ_h ≈ 0.1–0.15 → add D-gain |
+| Valve overlap | Dead band at neutral | Crane: 1–2% → holds load without brake |
+| β_e (bulk modulus) | Hose/fluid stiffness | AHC: rigid manifold, short hoses preferred |
+| Phase margin | Stability margin | Set amp gain at 50–60% of oscillation threshold |
+| K_v (velocity constant) | Loop gain | Increase for faster response; reduce if hunting |
+
+---
+
+### Version Control — SKILL.md v2.12 (KB79)
+**HydroMind SKILL.md v2.12** | Date: 2026-04-19
+Added: KB79 — Fluid Power Control (Blackburn, Reethof, Shearer — MIT Press)
+Topics: Valve flow equations K_q K_c, valve lap (overlap/underlap/critical), hydraulic natural frequency formula, bulk modulus and hose compliance, closed-loop stability phase/gain margin, leakage formula, servo design bandwidth hierarchy, Reynolds number laminar/turbulent rule, offshore crane control mapping
+Next KB: KB80
