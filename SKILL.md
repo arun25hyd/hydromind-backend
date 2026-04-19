@@ -6033,3 +6033,501 @@ Valve must respond faster than hydraulics, which must be faster than control loo
 Added: KB79 — Fluid Power Control (Blackburn, Reethof, Shearer — MIT Press)
 Topics: Valve flow equations K_q K_c, valve lap (overlap/underlap/critical), hydraulic natural frequency formula, bulk modulus and hose compliance, closed-loop stability phase/gain margin, leakage formula, servo design bandwidth hierarchy, Reynolds number laminar/turbulent rule, offshore crane control mapping
 Next KB: KB80
+
+
+---
+
+## KB80 — Cranes: Design, Practice and Maintenance (Verschoof, 2nd Ed.)
+**Source:** Cranes – Design, Practice, and Maintenance — Ing. J. Verschoof | Professional Engineering Publishing | ISBN 1 86058 373 3
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB80-1 — Hydraulic Drives for Crane Winches
+
+**Hägglunds LSHT Hydraulic Drive (common on crane winches):**
+- Components: control system + fixed-speed electric motor + oil tank + variable displacement pump + LSHT radial piston motor
+- Flow controlled by swashplate angle signal from control system — stepless variable speed
+- Starting torque: 200–300% of nominal rated torque (no fluid coupling needed)
+- Integrated brake system standard
+- Low moment of inertia → fast response
+
+**Hydraulic Drive vs Electric Drive:**
+- Hydraulic: stepless speed from zero, high starting torque, compact, overload protection via relief valve
+- Electric VFD: efficient at part load, better energy control, more complex electronics
+
+---
+
+### KB80-2 — Hoisting Motor Power Calculation
+
+**Step 1 — Nominal Hoisting Power:**
+N₁ = (Q × v) / η   [kW]
+- Q = load weight (kN), v = hoisting speed (m/s), η = efficiency (0.85–0.92)
+
+**Motor Torque:** M₁ = (N₁ × 9550) / n   [Nm]  (n in rpm)
+
+**Example:** Q=660 kN, v=1 m/s, η=0.90, n=783 rpm → N₁=733 kW, M₁=8,940 Nm
+
+**Step 2 — Acceleration of Rotating Masses:**
+Ma = (J × ω) / ta   [Nm] | ω = (n × 2π)/60 | Na = (Ma × n)/9550   [kW]
+- J = moment of inertia of motor+brake+gearbox (kg·m²), ta = acceleration time (sec)
+
+**Step 3 — Acceleration of Linear Masses:**
+F_acc = (Q/9.81) × (v/ta)   [N] → referred to motor shaft through gearing
+
+**Total motor selection:** N_total / fa (fa = motor overload factor, typically 2 for S3-60% duty)
+
+---
+
+### KB80-3 — Slewing Motor Power Calculation
+
+**Step 1 — Nominal Slewing Resistance:**
+M₁ = (ΣW × R₁) × µ × 10   [kN·m]
+- ΣW = total weight of all rotating parts + load (tonnes)
+- R₁ = ΣW·r / ΣW (resultant CG radius from slewing axis)
+- µ = slew bearing friction = **0.006** (standard value)
+
+**Motor torque:** M₁_motor = (M₁ × 10³) / (i × η) | i = n_motor/n_crane | η ≈ 0.85–0.90
+**Power:** N₁ = (M₁_motor × n_motor) / 9550   [kW]
+
+**Step 2 — Wind Resistance:**
+M₂ = (ΣF·r) × 10   [kN·m] | F = c × q × A (wind force on each part)
+Dynamic wind pressure: q = (1/16) × v²   [kg/m²] or q = 0.613 × v²   [N/m²]
+
+**Wind Speed / Pressure Table (FEM 1.001):**
+| Beaufort | Speed (m/s) | q (N/m²) | Crane Status |
+|---|---|---|---|
+| 8 | 17–21 | 180–270 | In-service operating limit (normal): q=250, v=20 m/s |
+| 10 | 24–28 | 360–480 | Out-of-service storm limit: q=400–500 N/m² |
+
+**Step 3 — Acceleration of Linear (Rotating) Masses:**
+M₃ = θ × ΣT × 10   [kN·m]
+- T (point mass) = m × r² | T (distributed) = (1/12)×m×L² + m×r²
+- θ = angular accel = (2π × n_crane) / (60 × ta)   [rad/s²]
+- ta = 6–8 sec for heavy cranes
+
+**Worked Example (double boom, 50t load, 40m radius):**
+ΣW=450t, ΣW·r=2528 tm, R₁=5.61m
+M₁=151.6 kN·m, N₁=21.15 kW (nominal)
+N₂=88 kW (wind q=150 N/m²)
+N₃=272 kW (linear acc ta=8s)
+N₄=18.5 kW (rotating masses)
+**Total during accel=399.65 kW → select 4×50 kW motors (fa=2, S3-60%)**
+
+---
+
+### KB80-4 — Luffing Motor Power Calculation
+
+**Nominal Luffing:**
+M₁ = (R × a₃ + W_jib × a₂) × 10   [kN·m]
+P₁ = (M₁ + M₂_wind) / a₁   [kN] (tackle rope force)
+v_tackle = (L_max − L_min) / t_luff   [m/s]
+N = (P₁ × v_tackle) / η   [kW]
+
+**Example (40t load, r_max=36m, r_min=12m, v=60m/min):**
+P₁=186 kN, v_tackle=0.84 m/s, η=0.9 → **N=174 kW**
+
+---
+
+### KB80-5 — Wire Rope Rules (Verschoof)
+
+**Minimum Safety Factor:** 5:1 (rope breaking load / maximum line pull)
+**Ultimate tensile limit:** Rope NOT to be used beyond 45% of breaking load during bending over sheave
+**Minimum drum diameter:** D_drum ≥ 16–20 × d_rope
+**Minimum sheave diameter:** D_sheave ≥ 16–25 × d_rope
+**Fleet angle max:** 1.5° grooved drum, 2.0° smooth drum
+
+---
+
+### KB80-6 — FEM Crane Classification
+
+| Standard | Body | Content |
+|---|---|---|
+| FEM 1.001 3rd Ed. 1987 | FEM | Design of hoisting appliances — loads, fatigue, classification |
+| ISO 4301 | ISO | Crane classification — duty cycles, load spectra |
+| DIN 15018 | DIN | German crane structural calculations |
+
+**FEM Mechanism Groups M1–M8:** Load spectrum (Q0–Q4) + Running time class (T1–T9) → determines fatigue and safety factors
+**Motor Rating Classes:** S1=Continuous | S3-25%=Very intermittent (typical hoist) | S3-60%=Intermittent
+
+---
+
+## KB81 — DNVGL-ST-0378: Offshore and Platform Lifting Appliances (2019/2020)
+**Source:** DNVGL-ST-0378 Ed. July 2019, Amended Oct 2020 | DNV GL AS
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB81-1 — Key Definitions
+| Term | Definition |
+|---|---|
+| SWL | Safe Working Load — nominal certified lift capacity |
+| Dynamic load | Working load × dynamic factor ψ |
+| AOPS | Automatic Overload Protection System |
+| MOPS | Manual Overload Protection System — yellow handle, operator-activated |
+| REP | Rope Exit Point — outermost sheave at boom tip |
+| Dynamic load chart | Capacity vs radius for each wave height H_s |
+
+### KB81-2 — Hydraulic System Requirements [Section 5.5] — MANDATORY
+
+- **5.5.1.2:** Fail-safe concept MANDATORY — every failure mode must be analyzed; failure must not hazard personnel
+- **5.5.1.3:** All parts protected against pressures exceeding maximum working pressure
+- **5.5.1.4:** Surge and intensified pressures must cause no hazard — minimize by design
+- **5.5.1.5:** Loss of pressure or critical drops must not create hazard
+- **5.5.1.6:** Internal or external leakage must not create hazard
+- **5.5.1.7:** Switching supply ON/OFF, supply reduction, supply cut-off/re-establishment → NONE shall create hazard
+- **5.5.1.9:** Components removable without draining reservoir, without extensive disassembly. Drip trays mandatory.
+- **5.5.1.10:** Reservoir: heat dissipation, air separation, contamination settling. Level gauge HIGH/LOW marks. Breather filter to system cleanliness.
+- **5.5.1.11:** Effective filtration AND cooling mandatory. Fluid sampling point with pressure warning sign.
+- **5.5.1.12:** Flexible hoses ONLY between moving elements, for equipment interchange, or vibration reduction
+- **5.5.1.14:** Accumulators require separate DNV approval
+- **5.5.1.15:** Load-carrying cylinders (luffing, boom telescoping) require DNVGL-ST-0194 approval
+- **5.5.1.16:** Cylinder design based on MAXIMUM OBTAINABLE PRESSURE (safety valve setting)
+
+**Hydraulic Pressure Testing [5.5.2]:**
+- Each component: **1.5 × design pressure** (max: design pressure + 70 bar)
+- Assembly test: in presence of DNV surveyor — no leakage or defects permitted
+
+### KB81-3 — Dynamic Factor ψ (Section 8.2)
+| Working Load W | Dynamic Factor ψ |
+|---|---|
+| 10 kN < W ≤ 2,500 kN | ψ = **1.3** minimum |
+| 2,500 kN < W < 5,000 kN | ψ = 1.5 − W/12,500 |
+| W > 5,000 kN | ψ = **1.1** minimum |
+
+ψ covers: hook velocity at pick-up + jib tip motion from platform motion + vessel heave velocity
+
+**Minimum Hoisting Speed (supply boat):** V_H = 0.4 × H_s (m/s)
+
+### KB81-4 — Offshore Crane Performance Requirements
+- Control response: minimum required speed from standstill within **2 seconds** of lever activation
+- Minimum slewing: **2 m/s** tangential at ¾ max radius (empty hook)
+- Minimum radial: 0.16 m/s (H_s=2m), 0.28 m/s (H_s=4m), 0.40 m/s (H_s=6m)
+
+### KB81-5 — Mandatory Safety Equipment (Section 8.4)
+
+**All offshore cranes MUST address these risk contributors:**
+1. Over-loading → AOPS + MOPS + boom overload limiter
+2. Over-travel → limit switches (DUPLICATED — two different technologies)
+3. Dangerous crane movements → hardwired emergency stop
+4. Slack wire rope → detector + auto stop
+5. Control system failure → fail-safe design
+6. Blackout → fail-safe on power loss
+7. Accidental load drop → structural integrity + AOPS
+
+**MOPS — Mandatory Requirements:**
+- Yellow coloured handle — single switch only — at control station
+- Operates under ALL conditions including main power failure
+- Overrides ALL other functions when activated
+- NOT permitted at wireless control station
+- When activated: maintains minimum 10% of maximum rated capacity retaining force
+
+---
+
+## KB82 — ISO 4413:1998 — Hydraulic Fluid Power: General Rules for Systems
+**Source:** ISO 4413 2nd Edition 1998-08-15
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB82-1 — Mandatory Circuit Diagram Information (Section 5.1)
+Circuit diagram must show:
+- All components: name, catalogue number, manufacturer
+- Pipe/tube: size, wall thickness, specification | Hose: size and specification
+- Cylinders: bore, rod diameter, stroke, max force, speed
+- Motors: displacement/rev, max torque, speed range, direction
+- Pumps: flow rate, rotation direction (viewed from driven shaft)
+- All pressure settings | Filter types and replacement elements
+- System fluid volume, fluid type and viscosity grade
+- Accumulator pre-charge pressures and volumes
+- Pressure test, sampling and bleed point locations
+- Cooling medium flow rate and temperature limits
+
+### KB82-2 — System Safety Requirements (Section 4.3)
+- All parts protected against pressures exceeding maximum working pressure
+- Preferred protection: pressure relief valve(s) throughout system
+- Surge pressures: minimized — must not cause hazard
+- Temperature: full range must be within all component safe limits
+
+### KB82-3 — Seal Material Compatibility (Section 5.5)
+| Fluid Type | Seal Material |
+|---|---|
+| Mineral oil HLP | **NBR (Nitrile)** — standard |
+| HLP-D, HV oils | NBR or FPM (Viton) |
+| Phosphate ester HFD-R | **FPM (Viton) mandatory** |
+| Water-glycol HFC | EPDM or Polyurethane |
+| High temp (>80°C) | **FPM (Viton) mandatory** |
+| Very low temp (<−30°C) | Low-temp NBR or Silicone (static) |
+
+### KB82-4 — Reservoir Design (Section 6)
+- Baffle plate separates return from suction — forces flow maximum path for air separation
+- Minimum 2 minutes residence time for air separation
+- Drain plug at lowest point | clean-out opening minimum 150×200 mm
+- Level indicator: min and max levels marked
+- Breather/filler with filter (same rating as return line filter)
+- Sizing: Industrial = 3× pump flow/min | Offshore = 5× pump flow/min
+
+### KB82-5 — Safety Labelling
+- Fluid sampling valves: "SYSTEM UNDER PRESSURE"
+- Accumulator isolation: "PRESSURE — DEPRESSURISE BEFORE WORKING"
+- **Line colour coding:** Red=pressure | Blue=return | Yellow=drain | Orange=pilot | Green=suction
+
+---
+
+## KB83 — Cranes and Derricks, 4th Edition (Shapiro)
+**Source:** Cranes and Derricks 4th Ed — Lawrence K. Shapiro & Jay P. Shapiro | McGraw-Hill | ISBN 9780071625586
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB83-1 — Load Classification
+**Static loads:** Lifted load + dead load (crane self-weight) + friction + out-of-level + misalignment
+**Dynamic loads:** F_dyn = m × a (inertia during acceleration) | F_centrifugal = m × ω² × r (slewing)
+**Dynamic factor:** 1.1–1.3 typical structural design (ASME B30) | DNV: 1.3 for offshore ≤250t SWL
+**Wind force:** F = Cd × A × q | Cd=1.3 (lattice), 1.5 (flat plate), 0.8 (round)
+**Wind on load:** 0.5 m²/tonne (if shape unknown) | In-service: 20 m/s, q≈250 N/m²
+
+### KB83-2 — Crane Stability Against Overturning
+
+**Stability ratio:** SR = M_resisting / M_overturning ≥ 1.5 minimum
+- Mobile cranes rated at 75–85% of tipping load (ASME B30.5)
+
+**Overturning moment:**
+M_OT = W_load × r + W_boom × r_boom_CG − W_cw × r_cw
+
+**Resisting moment:**
+M_R = W_crane × r_CG (distance from crane CG to tipping fulcrum)
+
+**Tipping fulcrum location:**
+- Outrigger crane → outer corner of outrigger pad
+- Crawler crane → outer edge of crawler track
+- Pedestal/offshore → slewing ring / pedestal edge
+
+**Out-of-level effect:** 1° out of level ≈ 3% rated capacity reduction
+
+### KB83-3 — Line Pull and Reeving Efficiency
+
+**Line pull:** F_line = W / (n × η_n)
+- W = total suspended load | n = number of rope parts | η_n = reeving efficiency
+
+**Reeving efficiency table:**
+| Parts of Line | Efficiency |
+|---|---|
+| 1 | 1.00 |
+| 2 | 0.98 |
+| 4 | 0.94 |
+| 8 | 0.88 |
+| 12 | 0.83 |
+
+**Minimum sheave diameter:** D_sheave ≥ 18 × d_rope (ASME B30)
+**Fleet angle max:** 1.5° grooved drum, 2.0° smooth drum
+**Dead wraps:** Minimum 3 always remaining on drum
+
+### KB83-4 — Wire Rope Design Factors (Shapiro)
+| Application | Minimum DF |
+|---|---|
+| General crane hoisting | 3.5:1 (ASME B30.2) |
+| Offshore operations (FEM/DNV) | 5:1 minimum |
+| Personnel hoisting | 10:1 minimum |
+
+**Discard criteria (ASME B30.2):**
+- ≥6 broken wires in one rope lay length
+- Rope diameter reduction >1/3 of nominal outer wire diameter
+- Kinking, crushing, bird-caging, heat damage → immediate removal
+
+### KB83-5 — Boom Pivot and Structural Loads
+
+**Overturning moment (load × radius):**
+Load moment = W × r   [tonne-metres or kN·m] — fundamental parameter for crane design
+
+**Boom compression (simple strut):**
+F_boom = (W_load × r) / (L_boom × sin α) + W_boom/2
+- α = boom angle from horizontal
+- Boom acts as column in compression → check Euler buckling
+
+**Pivot pin shear force (at luffing hinge):**
+F_pin = √(F_horizontal² + F_vertical²)
+Sum of: boom weight component + load transferred via boom head sheave + luffing cylinder force + wind on boom + inertia during acceleration
+
+**Slewing ring loads — three components:**
+- Axial: total vertical load (crane + hook load)
+- Radial: horizontal forces (wind + dynamic slewing)
+- Moment: overturning moment = load × r − counterweight × r_cw
+All three within slewing ring rated envelope — check OEM load diagram
+
+### KB83-6 — Lift Planning Checklist
+Before every lift verify:
+1. Crane SWL ≥ total suspended load (payload + rigging + block)
+2. Within rated radius for that load
+3. Ground bearing ≥ outrigger pad loads
+4. All clearances checked (boom, load swing, overhead)
+5. Wind within manufacturer's limit
+6. All rigging rated for load — no damaged slings/shackles
+7. Tag line attached — control load swing during slewing
+8. All personnel clear of load and rigging radius
+**Offshore additions:** Apply DNV dynamic factor, use dynamic load chart for H_s, verify deck load capacity, establish communication plan
+
+---
+
+## KB84 — Seals and Sealing Handbook, 6th Edition (Flitney)
+**Source:** Seals and Sealing Handbook 6th Ed — Robert Flitney | Butterworth-Heinemann/Elsevier 2014 | ISBN 978-0-08-099416-1
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB84-1 — Elastomer Material Types — Temperature and Fluid Compatibility
+
+| Material | Abbrev | Temp Range | Mineral Oil | Phosphate Ester | Water-Glycol | Offshore Use |
+|---|---|---|---|---|---|---|
+| Nitrile | NBR | −40 to +120°C | ✅ Excellent | ❌ | ❌ | **Standard hydraulic seals** |
+| Hydrogenated nitrile | HNBR | −30 to +150°C | ✅ Excellent | ❌ | Limited | High temp, sour service |
+| Fluorocarbon | FKM (Viton) | −20 to +200°C | ✅ Excellent | ✅ Excellent | Limited | High temp, fire-resistant fluids |
+| EPDM | EPDM | −50 to +150°C | ❌ | ❌ | ✅ Excellent | Water-glycol HFC only |
+| Polyurethane | PU/AU | −30 to +100°C | ✅ Good | ❌ | ❌ | Cylinder piston/rod — abrasion |
+| Silicone | VMQ | −60 to +200°C | Limited | ❌ | ❌ | Static seals wide temp range |
+| Neoprene | CR | −40 to +120°C | ✅ Moderate | ❌ | ❌ | General, weathering |
+
+**Critical rule:** FKM mandatory for phosphate ester HFD fluids. NEVER use NBR with water-glycol HFC.
+
+### KB84-2 — O-Ring Selection
+**Standards:** ISO 3601 / SAE AS 568 (inch) | BS 4518 / SMS 1588 (metric)
+**Squeeze:** Static=15–30% radial | Dynamic=10–20% radial
+**Thermal expansion at 149°C:** ~3% linear, ~9% volumetric — design groove accordingly
+
+**Extrusion prevention:**
+- Above 100 bar → backup ring recommended
+- Above 200 bar → backup ring mandatory
+- Backup materials: PTFE (most common), spiral-cut PTFE, filled PTFE, hard elastomer
+
+### KB84-3 — Surface Finish Requirements
+| Application | Surface Finish Ra |
+|---|---|
+| Static seals | 0.8–1.6 µm |
+| Dynamic reciprocating (O-ring) | 0.4–0.8 µm |
+| Dynamic reciprocating (lip seal) | 0.1–0.4 µm |
+| Rotary lip seal shaft | 0.2–0.5 µm (no lead-in marks) |
+| Chrome/HVOF rod (offshore) | 0.1–0.2 µm after grinding |
+
+### KB84-4 — Hydraulic Cylinder Seal Positions
+1. **Piston seal** (internal) — seals pressure both directions, double-acting
+2. **Rod seal** (cylinder head) — prevents external leakage — Ra 0.1–0.4 µm on rod
+3. **Wiper/scraper** (outermost) — removes dirt/water from rod before rod seal
+   → Worn or missing wiper = ingress → premature rod seal failure → external leakage
+
+**Rotary shaft seals (pump/motor):**
+- Lip seal: shaft min 45 HRC hardness, Ra 0.2–0.5 µm, zero lead angle
+- Failure causes: misalignment, excess case drain back-pressure, wrong material, contamination, dry startup
+
+---
+
+## KB85 — Wire Rope Users Manual (AISI / Wire Rope Technical Board)
+**Source:** Wire Rope Users Manual — Committee of Wire Rope Producers, AISI / WRTB
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB85-1 — Wire Rope Constructions
+| Construction | Wires/Strand | Flexibility | Abrasion | Best For |
+|---|---|---|---|---|
+| 6×7 | 7 | Low | Highest | Standing rigging, pendants |
+| 6×19 class | 16–26 | Medium | High | **General crane hoisting — most common** |
+| 6×37 class | 27–49 | High | Medium | Multi-layer drums, small sheaves |
+| 6×26 Warrington-Seale | 26 | Medium | High | Rotation-resistant single line |
+| 18×7 multi-strand | 7 per strand | High | Low | Rotation-resistant free-hanging load |
+| 35×7 multi-strand | 7 per strand | High | Low | Heavy single-line hoisting |
+
+**Core:** IWRC (Independent Wire Rope Core) preferred for cranes — +7% breaking strength, better crush resistance
+**Lay:** Regular lay most common (opposite strand/wire twist) — abrasion resistant, less kink-prone
+
+### KB85-2 — Design Factors
+| Application | Minimum DF |
+|---|---|
+| General industrial hoisting | 5:1 |
+| Crane hoisting (FEM/DNV offshore) | **5:1 minimum** |
+| Personnel hoisting | 10:1 minimum |
+| Standing rigging/pendants | 3.5:1 to 4:1 |
+| If danger to human life | 8:1 to 9:1 |
+
+### KB85-3 — Minimum D/d Ratios (Sheave/Drum Diameter / Rope Diameter)
+| Construction | Recommended D/d | Minimum D/d |
+|---|---|---|
+| 6×7 | 42 | 34 |
+| 6×19 class | 26 | 18 |
+| 6×37 class | 18 | 14 |
+| 18×7 rotation-resistant | 51 | 41 |
+| 35×7 rotation-resistant | 45 | 36 |
+
+Strength loss at D/d=10: ~15% | D/d=20: ~7% | D/d=40: ~3%
+Doubling sheave diameter approximately doubles rope life.
+
+### KB85-4 — Wire Rope Inspection and Discard Criteria
+**Remove rope immediately if:**
+- ≥ 6 broken wires in one lay length (6×rope diameter) — 6-strand rope
+- ≥ 3 broken wires in one strand in one lay length
+- Rotation-resistant rope: 2 broken wires in one lay length
+- Outer wire wear > 1/3 of original outer wire diameter
+- Rope diameter reduction > 3% from original (internal wear indicator)
+- Kinking, crushing, bird-caging, heat damage (blue/brown discolouration)
+- Phase 3 stretch curve: rapid stretch rate increase → rope near end of life
+
+**Annual crane inspection:** hook (cracks), drum (wear/cracks), structural members (cracks/corrosion), all connections (bolts, rivets, welds)
+
+### KB85-5 — Lubrication
+**Frequency:** Offshore/salt environment → monthly | Normal industrial → 3–6 months
+**Application:** Brush at sheave contact point, rope lubricator device (best penetration), drip system
+**Never:** run rope completely dry — internal corrosion destroys rope from inside
+
+---
+
+## KB86 — Handbook of Rigging (MacDonald, Rossnagel, Higgins)
+**Source:** Handbook of Rigging — Lifting, Hoisting and Scaffolding | MacDonald, Rossnagel, Higgins | McGraw-Hill
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.13**
+
+### KB86-1 — Sling Angle Effect — CRITICAL SAFETY CONCEPT
+
+**Sling tension formula:** F_leg = (Load/2) / sin(θ)   (θ = angle from horizontal)
+
+| Angle from Horizontal | Tension Factor | Per Leg (10t load) |
+|---|---|---|
+| 90° (vertical) | 1.00 | 5.0 t |
+| 60° | 1.15 | 5.8 t |
+| 45° | 1.41 | 7.1 t |
+| 30° | 2.00 | **10.0 t** |
+| 10° | 5.76 | **28.8 t** |
+
+**Minimum angle: 45° from horizontal** — below 30° → sling tension exceeds load weight per leg.
+Use spreader bar when load geometry requires flat angles.
+
+### KB86-2 — Dynamic (Impact) Loading
+F_dynamic = W × (1 + √(1 + 2h/δ))
+- h = drop height, δ = static deflection of supporting member
+- Field rule: jerk-starting hoist from slack rope → 5–10× static load spike → NEVER jerk start
+- Slowly apply load, ramp speed gradually — critical for rope and structure life
+
+### KB86-3 — Centre of Gravity Positioning
+- Hook must be directly above CG — load stable only in this condition
+- Finding CG: CG from A = (W_B × L) / (W_A + W_B) — lever principle
+- Unknown CG: test lift slightly off ground → observe tilt → reposition slings
+
+### KB86-4 — Sling Types and Capacities
+| Hitch Type | Capacity vs Rated |
+|---|---|
+| Vertical (straight) | 100% |
+| Choker hitch | 75–80% |
+| Basket hitch (single wrap) | Up to 200% |
+
+**Hardware rules:**
+- Bow/anchor shackle: use for multi-leg slings (larger bearing area)
+- D-shackle: in-line loads ONLY — never side-load (50% capacity reduction)
+- Always: pin moused or safety-pinned before lift
+- Grade 8 alloy steel minimum for industrial/offshore lifting
+- Safety hook mandatory for offshore lifts — positive lock (self-locking)
+- Condemn hook if: visible crack, >10% stretch, >15% throat twist
+
+### KB86-5 — Offshore Lift Planning Checklist
+1. Crane SWL ≥ payload + rigging + hook block (total suspended load)
+2. Within rated radius for load + dynamic factor (DNV ψ)
+3. Use dynamic load chart for sea state H_s
+4. Ground/deck bearing capacity verified for crane + load reaction
+5. All clearances checked
+6. Wind within crane limits
+7. All rigging rated, inspected — no damage
+8. Tag line attached for slew control
+9. Personnel clear of load and rigging radius
+10. Communication plan: operator + banksman + riggers established
+
+---
+
+### Version Control — SKILL.md v2.13
+**HydroMind SKILL.md v2.13** | Date: 2026-04-19
+Added: KB80 (Verschoof Cranes), KB81 (DNVGL-ST-0378), KB82 (ISO 4413), KB83 (Shapiro Cranes & Derricks), KB84 (Flitney Seals Handbook), KB85 (AISI Wire Rope Manual), KB86 (Handbook of Rigging)
+Topics: Hoisting/slewing/luffing motor power calculations (complete with formulas and worked examples), crane stability overturning moment, boom pivot pin shear, boom compression strut, slewing ring loads, load chart interpretation, reeving efficiency table, DNV hydraulic requirements (5.5), dynamic factor ψ, MOPS/AOPS mandatory requirements, ISO 4413 circuit diagram, seal material compatibility table, O-ring selection, backup rings, surface finish requirements, hydraulic cylinder seal positions (piston/rod/wiper), rotary lip seal requirements, wire rope constructions, design factors 5:1 offshore, D/d ratios, inspection and discard criteria, lubrication schedule, sling angle tension formula, dynamic impact, CG positioning, sling hitch types, shackle and hook rules, offshore lift planning checklist
+Next KB: KB87
