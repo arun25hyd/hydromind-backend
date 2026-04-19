@@ -5600,3 +5600,303 @@ Note: Despite standardised cavity, logic elements from different manufacturers N
 Added: KB71 (Rexroth Trainer Vol.1), KB72 (Vol.2), KB73 (Vol.3), KB74 (Vol.4), KB75 (Vol.6)
 Topics added: Fundamental physics, fluid types, pump/motor/cylinder calc, DCV centres, CBV, accumulator sizing, filter ratings, HPU design, proportional valve signal chain, amplifier card full reference, servo valves, system design pressure selection, heat exchanger sizing, Barlow's formula, offshore material selection, logic element technology, secondary control HST, 4-quadrant operation, energy recovery
 Next KB: KB76
+
+
+---
+
+## KB76 — Basics of Hydraulic Systems (Zhang & Qin)
+**Source:** Basics of Hydraulic Systems — Qin Zhang & Tonglin Qin | CRC Press
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.12**
+
+### KB76-1 — Power Transmission Comparison
+| Type | Media | Force Density | Best Use |
+|---|---|---|---|
+| Mechanical | Gears, belts | High, complex routing | Fixed drives, high efficiency |
+| Electrical | Cable | Moderate, rotary primary | Remote power, mobile battery |
+| **Fluid (Hydraulic)** | Pipes, hoses | **High — any shape, all directions** | **Heavy loads, mobile equipment** |
+
+Hydraulic vs Pneumatic: Hydraulic = incompressible liquid, HIGH pressure (200–450 bar). Pneumatic = compressible gas, LOW pressure (6–10 bar), lower power density.
+
+**Four Subsystems of a Hydraulic Power System:**
+1. Power generation — pump converts mechanical → hydraulic potential energy
+2. Power distribution — control valves regulate pressure, flow, direction
+3. Power deployment — cylinders and motors convert hydraulic → mechanical energy
+4. Power regulation — reservoir, filters, accumulators, coolers
+
+### KB76-2 — Pascal's Law and Force Multiplication
+- F₂ = F₁ × (A₂/A₁) | p = F/A (equal pressure both sides)
+- Example: 20 mm piston → 100 mm piston = 25:1 force multiplication, 25:1 speed reduction
+- 2500 N load on 100 mm piston → 100 N needed on 20 mm piston
+
+### KB76-3 — Bernoulli and Orifice Flow
+
+**Orifice Equation:**
+Q = Cd × A × √(2ΔP/ρ)
+- Cd = 0.611 (sharp-edged); 0.82 (squared-edge)
+- ρ = 850–900 kg/m³ (hydraulic oil)
+
+**Fluid Continuity:** Q = A₁v₁ = A₂v₂ (constant flow rate in series circuit)
+v = Q / A (smaller bore = higher velocity at same flow)
+
+### KB76-4 — Hydraulic Power Formulas
+- P (kW) = Q [L/min] × p [bar] / 600
+- P (HP) = Q [GPM] × p [PSI] / 1714
+- P_heat = P_input × (1 − η_system) | typical η_system = 0.70–0.85
+
+### KB76-5 — Pump Key Parameters (Zhang & Qin)
+- Q_th = D_v × n | Q_act = Q_th × η_vol (0.90–0.98 typical)
+- Cavitation: insufficient suction pressure → vaporisation → pump noise/damage
+  Causes: blocked suction filter, long suction pipe, high viscosity (cold), high speed
+  Prevention: suction velocity <1 m/s, minimum 50 mm ID suction line for large pumps
+- Aeration: air ingestion → spongy response → reservoir level check, suction fittings
+- Corner power: P_c = p_max × Q_max — determines minimum drive motor size
+- Load sensing: pump pressure = LS signal + 20–25 bar margin — most efficient control
+
+### KB76-6 — Cylinder Equations (Zhang & Qin)
+
+**Single-Rod Double-Acting — Key Equations:**
+- Extend force: F₁ = p × A₁ (cap-end) | Retract force: F₂ = p × A₂ (annulus)
+- Extend speed: v₁ = Q / A₁ | Retract speed: v₂ = Q / A₂ (faster)
+- Area ratio: φ = D² / (D² − d²) → range 1.06 to 5.00
+
+**Differential Extension:**
+- Return flow from rod-end fed back to cap-end along with pump flow
+- Speed: v₃ = 4Q₁ / (πd²) — faster, uses rod area only
+- Force: F₃ = (πd²/4) × p₁ — reduced (rod area only, not bore area)
+- Equal speed extend/retract when d = D/√2 (area ratio φ = 2.0)
+
+### KB76-7 — Motor Formulas (Zhang & Qin)
+- T_th = D_v × Δp / (2π) [theoretical torque]
+- η_m = T_actual / T_theoretical | Starting: 70–80%; Running: ~90%
+- n = Q / (D_v × η_vol)
+
+| Motor Type | Speed | Starting Torque % | Application |
+|---|---|---|---|
+| Gear motor | 500–3000 rpm | 70–75% | Fans, auxiliaries |
+| Axial piston variable | 50–4000 rpm | 85–90% | Crane hoist, traction |
+| LSHT radial piston | 0–100 rpm | 90–95% | Winches, anchor windlass |
+
+### KB76-8 — HST Configurations (Zhang & Qin)
+| Config | Pump | Motor | Characteristic |
+|---|---|---|---|
+| FP-FM | Fixed | Fixed | Simple, low efficiency |
+| VP-FM | Variable | Fixed | Constant torque, variable speed — most common crane |
+| FP-VM | Fixed | Variable | Constant power, variable torque |
+| VP-VM | Variable | Variable | Full range — Liebherr, MacGregor crane hoist |
+
+VP-FM HST: motor speed proportional to pump displacement. Torque constant (pressure × motor Vg). Power varies with pump displacement.
+Overall HST efficiency: ~80% typical; high-performance: 85%+. Mechanical transmission: ~92%.
+
+### KB76-9 — Flow Velocities (Zhang & Qin)
+| Line Type | Velocity |
+|---|---|
+| Suction line | 0.6 m/s max |
+| Return (<3.4 MPa) | 4.6 m/s |
+| Working medium (3.4–20.7 MPa) | 6.1 m/s |
+| Working high (>20.7 MPa) | 7.6 m/s |
+| Case drain | 0.5–1.5 m/s |
+
+---
+
+## KB77 — Fluid Power Circuits and Controls (Cundiff)
+**Source:** Fluid Power Circuits and Controls: Fundamentals and Applications — John S. Cundiff
+**Publisher:** CRC Press, 2002 | ISBN 0-8493-0924-7
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.12**
+
+### KB77-1 — Circuit Analysis Framework (Cundiff)
+**Two Key Variables in all hydraulic circuits:**
+1. Pressure — determines force (controlled by relief, reducing, sequence, CBV valves)
+2. Flow — determines speed (controlled by pump displacement and flow control valves)
+
+**System thinking rule:** Components (pump, valves, actuators) interact as a system — each component's characteristics affect the rest.
+
+### KB77-2 — Pressure Control Circuits (Cundiff)
+
+**Unloading Circuit:** When actuator at end of stroke — pump flow diverted to tank at low pressure.
+- Open-centre DCV: P→T in neutral → low pressure standby
+- Two-pump hi-low: low-pressure pump unloads at set point → high-pressure pump maintains
+
+**Sequence Valve:** Normally-CLOSED → opens when upstream pressure reaches set point.
+Example: crane outriggers fully extended before lift circuit activates.
+
+**CBV (Cundiff):** Set pressure = 1.3 × max load-induced pressure. Pilot ratio 3:1 to 4.5:1.
+Pilot pressure required to open = CBV set pressure / pilot ratio.
+
+### KB77-3 — Flow Control Circuits (Cundiff)
+
+**Meter-In:** Flow control in supply line. No back-pressure → only for RESISTIVE loads (not overrunning).
+**Meter-Out:** Flow control in return line. Creates back-pressure → safe for OVERRUNNING loads (crane luffing, winch lowering).
+**Bleed-Off:** Diverts excess pump flow to tank. Energy efficient. Used in open-centre LS systems.
+
+### KB77-4 — Closed-Circuit HST (Cundiff)
+
+**Charge pump:** 10–25% of main pump displacement. Provides 20–30 bar boost pressure. Prevents cavitation on low-pressure loop side.
+**Flushing valve:** Dumps small flow from low-pressure loop side → removes heat. Critical for thermal management in offshore crane HST.
+
+**Closed-Circuit HST Fault Table:**
+| Symptom | Likely Cause | Check |
+|---|---|---|
+| Low system pressure | Pump worn (low η_vol) | Charge pressure and main loop pressure |
+| Charge pressure low | Charge pump worn or charge relief too low | Charge relief setting, charge pump output |
+| Motor not turning | Servo not shifting pump | Servo pressure, control signal |
+| Jerky motor | Low charge pressure → cavitation | Charge pressure, suction filter |
+| Overheating | Flushing valve stuck, cooler blocked | Flushing flow, cooler bypass, oil level |
+| Motor running slow | Low pump displacement, internal bypass | Case drain flow, pump control signal |
+
+**VP-VM Automatic Shift (Caterpillar / Liebherr A6VM principle):**
+- Phase 1: Pump displacement increases (motor at max Vg) → speed up, constant torque
+- Phase 2: Motor displacement decreases (pump at max) → speed continues, torque decreases
+- Maximum speed = motor at minimum displacement. Same as A6VM 2-speed selection on crane hoist.
+
+### KB77-5 — Linear Actuators (Cundiff)
+
+**Regenerative Circuit:**
+- Rod-end return → cap-end supply (bypass DCV)
+- Effective area = rod area only: A_eff = π × d²/4
+- Speed = Q / A_rod (faster advance)
+- Force = p × A_rod (lower — rod area not bore)
+- Use: rapid advance, no load; switch to normal for work stroke
+
+**Pressure Intensifier:**
+- p_high = p_input × (A_large / A_small) — intensification ratio = large/small area
+- Q_high = Q_input × (A_small / A_large) — lower flow at high pressure
+- Use: high-pressure branch from lower-pressure system, clamping circuits
+
+### KB77-6 — Temperature and Contamination (Cundiff)
+
+**Oil Oxidation Rule:** Every 10°C above 60°C → doubles oxidation rate.
+Oxidation → varnish, sludge, acid → valve sticking, seal degradation.
+Max temperature: 70–80°C continuous; 90°C absolute maximum.
+
+**Water Contamination:**
+- Sources: reservoir condensation, cooler leaks, ingress
+- Detection: crackle test (hot plate) or Karl Fischer titration
+- Removal: water-absorbing filter elements, vacuum dehydration
+
+**Oil Analysis Parameters:**
+| Parameter | Indicates |
+|---|---|
+| Viscosity change | Fluid degradation or mixing |
+| TAN (Total Acid Number) | Oxidation level |
+| Iron (Fe) | Pump/motor wear |
+| Copper (Cu) | Bearing, bronze bushing wear |
+| Silicon (Si) | Dirt ingestion |
+| Water (ppm) | Cooler leak or condensation |
+| ISO 4406 particle count | Filter performance, wear rate |
+
+### KB77-7 — Servo Valves (Cundiff)
+
+**Null Shift:** Spool drift from centre → actuator creep. Cause: contamination, temperature.
+Correction: electrical bias on torque motor.
+
+**Bandwidth:** 30–100 Hz at −3dB. Control frequency must be <50% of valve bandwidth.
+Above bandwidth: valve cannot follow signal → phase lag → instability.
+
+**Contamination failure:** Particles >5 µm block flapper-nozzle (0.1–0.2 mm clearance).
+Always use 10 µm absolute pressure line filter upstream of servo valve.
+
+### KB77-8 — Proportional Valves (Cundiff)
+
+**Proportional vs Servo (Cundiff):**
+- Proportional: ±2–5% accuracy, ISO 16/14/11 filtration, 30–100 ms response
+- Servo: ±0.5% accuracy, ISO 15/13/10 filtration, 5–30 ms response
+
+**Dither:** 50–200 Hz, 5–15% amplitude → reduces hysteresis. Too high = vibration. Too low = hysteresis.
+
+**Closed-loop (LVDT) proportional valve:** Spool position measured and corrected → preferred for offshore crane speed control consistency.
+
+---
+
+## KB78 — Hydraulic Cylinder Design Calculation Reference
+**Source:** Design Calculation & Analysis — Hydronus Project (Cylinder Calculation Reference)
+**Scope:** Piston rod load capacity, barrel thickness (Lamé), oil volume, material selection, chrome plating
+**KB entry date:** 2026-04-19 | **HydroMind SKILL.md v2.12**
+
+### KB78-1 — Piston Rod Load Bearing Capacity
+σ_allow (SA36 mild steel) = 407.7 MPa (N/mm²)
+F_max = σ_allow × A_rod | A_rod = π × D² / 4
+
+Example: 25 mm diameter rod → A = 490.87 mm² → F_max = 200,127 N = 20.4 tonnes
+Design rule: minimum 4:1 safety factor above maximum working load.
+
+### KB78-2 — Maximum Barrel Pressure from Applied Load
+p = F / A_bore | A_bore = π × D_bore² / 4
+Example: 5 tonne load, 40 mm bore → p = 49,050 / 1256.6 = 39 MPa = 390 bar
+
+### KB78-3 — Barrel Wall Thickness — Lamé Equations
+
+**For thick-walled cylinders (wall > 10% of bore radius):**
+σ_r = B/r² − A (radial stress)
+σ_c = B/r² + A (hoop/circumferential stress — maximum at inner radius)
+
+Boundary conditions:
+- At r₁ (inner): σ_r = −p_internal (internal pressure acts inward)
+- At r₂ (outer): σ_r = 0 (free surface)
+
+Solve: B = A × r₂² | Substitute to find A and B from boundary conditions.
+Design check: σ_c at r₁ ≤ σ_allow / SF (SF = 4 for hydraulic cylinders)
+
+Example result: 40 mm bore, 100 MPa → outer diameter 60 mm, wall thickness 10 mm.
+
+**Simplified Barlow's Formula (thin wall — t < 10% of D):**
+t = (p × D) / (2 × σ_allow × SF)
+Use Lamé for offshore high-pressure cylinders (>200 bar). Thin-wall formula underestimates for thick sections.
+
+### KB78-4 — Cylinder Length Formula
+L = t_endcap + t_bush + t_head + t_seal_retention + stroke
+
+Typical component values (small/medium cylinders):
+- End cap: 10–15 mm | Bush: 20–30 mm | Cylinder head: 25–40 mm | Seal retention: 8–12 mm
+
+### KB78-5 — Oil Volume Calculations
+V_extend = (π/4) × D_bore² × stroke
+V_retract = (π/4) × (D_bore² − D_rod²) × stroke
+V_pipe = (π/4) × D_pipe² × L_pipe
+V_reservoir ≥ V_extend + V_retract + V_pipe + 30–50% reserve
+
+Example: 40 mm bore, 350 mm stroke → V_extend = 440 mL
+
+### KB78-6 — Structural Stress (Channel/Base Members)
+σ = F / (A_outer − A_inner) | For hollow square channel: σ = F / (a² − b²)
+Weaker section (with cutout): A_net = A_full − A_removed | σ_net = F / A_net
+Verify: σ_net < σ_allowable (250 MPa yield for SA36, with safety factor applied)
+
+### KB78-7 — Cylinder Material Selection Summary
+
+**Piston Rod Materials:**
+| Material | Yield Strength | Use Case |
+|---|---|---|
+| SA36 / ASTM A36 | 250 MPa | Light duty, low pressure |
+| CK45 / C45E (DIN) | 370–440 MPa | **Standard hydraulic cylinders — most common offshore** |
+| 42CrMo4 (alloy) | 650–900 MPa | High-load, high-pressure cylinders |
+| 316 Stainless Steel | 210 MPa | Corrosive environments (lower strength) |
+
+**Cylinder Barrel Materials:**
+| Material | Use |
+|---|---|
+| ST52 / S355 honed tube | Standard hydraulic cylinder barrel |
+| E355 / DIN EN 10305-1 | European standard honed hydraulic tube |
+| 4140 / 42CrMo4 | High-pressure, high-strength |
+
+**Piston Rod Surface Treatment:**
+| Treatment | Thickness | Hardness | Best Use |
+|---|---|---|---|
+| Hard chrome plating | 25–80 µm | 850–1000 HV | Standard industrial, cost-effective |
+| HVOF (WC-Co coating) | 100–300 µm | 1000–1300 HV | **Offshore/marine — salt corrosion, RoHS** |
+| Ceramic (Cr₂O₃) | 100–200 µm | 1400–1600 HV | High corrosion + abrasion resistance |
+| Nickel plating | 25–50 µm | 250–500 HV | Corrosion only — lower hardness |
+
+**Hard Chrome Plating Standard for Hydraulic Cylinders:**
+- Minimum: 25 µm (0.025 mm) per side — standard industrial
+- Offshore/marine recommended: 50–80 µm per side
+- Surface finish after grinding: Ra ≤ 0.4 µm (prevents seal damage)
+- Microhardness: 800–1000 HV (Vickers)
+- HVOF preferred offshore — no hexavalent chromium (EU RoHS/REACH compliant)
+
+---
+
+### Version Control Entry — SKILL.md v2.12
+**HydroMind SKILL.md v2.12** | Date: 2026-04-19
+Added: KB76 (Zhang & Qin — Basics of Hydraulic Systems), KB77 (Cundiff — Fluid Power Circuits & Controls), KB78 (Cylinder Design Calculation Reference)
+Topics added: Orifice equation, Bernoulli continuity, pump corner power and LS, cylinder differential extension, double-rod equal speed, cylinder cushions, motor starting torque, HST VP-FM/VP-VM configurations, HST closed-circuit faults, Lamé barrel thickness equations, cylinder length formula, oil volume calculation, piston rod material table, chrome/HVOF/ceramic plating comparison, contamination oil analysis table, servo valve bandwidth, proportional valve open vs closed loop, regenerative circuit, pressure intensifier
+Next KB: KB79
