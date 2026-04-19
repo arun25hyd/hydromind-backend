@@ -588,6 +588,62 @@ const KB_ROUTE_MAP = [
   // KB58 — Idelchik Hydraulic Resistance Handbook
   { p: ['pressure drop','pressure loss','idelchik','hydraulic resistance','friction factor','pipe sizing','orifice sizing','discharge coefficient','resistance coefficient','bend loss','elbow loss','pipe loss','fitting loss','manifold pressure','tee resistance','valve resistance coefficient','darcy','weisbach','reynolds number','flow velocity','pipe bore','line sizing'],
     k: ['KB58'] },
+
+  // KB71-75 — Rexroth Hydraulic Trainer Vol.1-4, Vol.6
+  { p: ['rexroth trainer','hydraulic trainer vol','basic principles hydraulic','hydrostatics hydrodynamics','pascal law','fluid power fundamentals','hydraulic fundamentals'],
+    k: ['KB71'] },
+  { p: ['proportional valve technology','servo valve technology','torque motor','flapper nozzle','LVDT spool','proportional amplifier','dither frequency','ramp generator amplifier','enable signal amplifier','gain adjustment amplifier','null adjustment','proportional solenoid','hysteresis valve','valve lap','overlap underlap critical centre'],
+    k: ['KB72'] },
+  { p: ['hydraulic system design','planning hydraulic','system pressure selection','marine crane pressure','deck crane pressure','heat exchanger sizing','pipe velocity hydraulic','Barlow formula wall thickness','offshore material selection','HVOF cylinder','hard chrome cylinder','pipe bore calculation','noise control hydraulic'],
+    k: ['KB73'] },
+  { p: ['logic element','cartridge valve','2-way cartridge','DIN 24342','poppet valve','logic element area ratio','control cover','logic element size','logic element flow'],
+    k: ['KB74'] },
+  { p: ['secondary control','secondary unit','four quadrant motor','impressed pressure rail','energy recovery hydraulic','accumulator winch drive','secondary HST','torque control secondary','speed control secondary'],
+    k: ['KB75'] },
+
+  // KB76 — Zhang & Qin Basics of Hydraulic Systems
+  { p: ['orifice equation','orifice flow','discharge coefficient','continuity equation','bernoulli hydraulic','corner power','differential extension cylinder','double rod cylinder equal speed','cylinder cushion'],
+    k: ['KB76'] },
+
+  // KB77 — Cundiff Fluid Power Circuits
+  { p: ['meter in meter out','bleed off circuit','regenerative circuit','pressure intensifier','closed circuit HST fault','flushing valve HST','charge pump closed loop','oil oxidation temperature','water contamination hydraulic','oil analysis program','servo valve null','servo valve bandwidth','proportional closed loop LVDT'],
+    k: ['KB77'] },
+
+  // KB78 — Cylinder Calculation Reference
+  { p: ['piston rod load capacity','barrel wall thickness','Lame equation','cylinder barrel thickness','oil volume cylinder','cylinder length formula','CK45 piston rod','42CrMo4 cylinder','hard chrome plating thickness','HVOF coating offshore','chrome plating specification','cylinder material selection'],
+    k: ['KB78'] },
+
+  // KB79 — Blackburn Fluid Power Control MIT Press
+  { p: ['valve flow equation','Kq flow gain','Kc pressure flow coefficient','hydraulic natural frequency','bulk modulus hose','effective bulk modulus','closed loop stability hydraulic','phase margin hydraulic','gain margin hydraulic','velocity constant Kv','leakage formula spool','laminar gap leakage','servo system bandwidth'],
+    k: ['KB79'] },
+
+  // KB80 — Verschoof Cranes Design Practice Maintenance
+  { p: ['hoisting motor power','slewing motor power','luffing motor power','slewing torque calculation','slew bearing friction','wind load crane','FEM crane classification','FEM 1001','mechanism group','Hagglunds hydraulic drive','crane motor power calculation','slewing resistance'],
+    k: ['KB80'] },
+
+  // KB81 — DNVGL-ST-0378 Offshore Cranes
+  { p: ['DNV ST 0378','DNVGL-ST-0378','offshore crane standard','dynamic factor offshore crane','MOPS crane','AOPS crane','hydraulic pressure test 1.5','2 second response crane','minimum slewing speed','DNV hydraulic requirements','offshore crane safety','overload protection crane','SWL dynamic factor'],
+    k: ['KB81'] },
+
+  // KB82 — ISO 4413
+  { p: ['ISO 4413','hydraulic system rules','circuit diagram requirements','reservoir design ISO','seal compatibility ISO','hydraulic colour coding','pressure line colour','return line colour'],
+    k: ['KB82'] },
+
+  // KB83 — Shapiro Cranes and Derricks
+  { p: ['crane stability','overturning moment','tipping fulcrum','stability ratio','line pull reeving','reeving efficiency','load chart crane','boom compression strut','pivot pin shear','slewing ring loads','sheave minimum diameter','crane load moment','load moment crane'],
+    k: ['KB83'] },
+
+  // KB84 — Flitney Seals and Sealing Handbook
+  { p: ['NBR seal','FKM seal','Viton seal','EPDM seal','polyurethane seal','nitrile rubber','fluorocarbon seal','seal material compatibility','O-ring selection','O-ring groove','backup ring','extrusion gap','piston seal','rod seal','wiper seal','scraper seal','lip seal rotary','seal surface finish','elastomer temperature'],
+    k: ['KB84'] },
+
+  // KB85 — AISI Wire Rope Users Manual
+  { p: ['wire rope construction','wire rope design factor','wire rope discard','broken wire discard','wire rope inspection','sheave drum ratio','D/d ratio wire rope','wire rope lubrication','wire rope fatigue','IWRC wire rope','6x19 wire rope','6x37 wire rope','rotation resistant rope','wire rope strength loss','fleet angle drum'],
+    k: ['KB85'] },
+
+  // KB86 — Handbook of Rigging
+  { p: ['sling angle tension','sling tension formula','choker hitch','basket hitch','rigging sling','dynamic impact load','centre of gravity lift','shackle selection','bow shackle','D shackle','hook inspection','pad eye','lift planning','offshore lift','spreader bar','rigging hardware','grade 8 shackle'],
+    k: ['KB86'] },
 ];
 
 async function getKbContextForQuestion(question, topK) {
