@@ -6531,3 +6531,500 @@ F_dynamic = W × (1 + √(1 + 2h/δ))
 Added: KB80 (Verschoof Cranes), KB81 (DNVGL-ST-0378), KB82 (ISO 4413), KB83 (Shapiro Cranes & Derricks), KB84 (Flitney Seals Handbook), KB85 (AISI Wire Rope Manual), KB86 (Handbook of Rigging)
 Topics: Hoisting/slewing/luffing motor power calculations (complete with formulas and worked examples), crane stability overturning moment, boom pivot pin shear, boom compression strut, slewing ring loads, load chart interpretation, reeving efficiency table, DNV hydraulic requirements (5.5), dynamic factor ψ, MOPS/AOPS mandatory requirements, ISO 4413 circuit diagram, seal material compatibility table, O-ring selection, backup rings, surface finish requirements, hydraulic cylinder seal positions (piston/rod/wiper), rotary lip seal requirements, wire rope constructions, design factors 5:1 offshore, D/d ratios, inspection and discard criteria, lubrication schedule, sling angle tension formula, dynamic impact, CG positioning, sling hitch types, shackle and hook rules, offshore lift planning checklist
 Next KB: KB87
+
+---
+
+## KB87 — ISO 4413:1998 — Hydraulic Fluid Power General Rules (Full Standard)
+**Source:** ISO 4413:1998 Second Edition | ISO/TC 131/SC 9
+**Category:** Standards | **Type:** Hydraulic System Design & Safety Standard
+
+### KB87-1 — Scope & Purpose
+Covers general rules for hydraulic systems on industrial machinery. Applies to all offshore crane HPUs, deck machinery, and mobile hydraulic systems. Key objectives: safety, uninterrupted operation, ease of maintenance, long system life.
+
+### KB87-2 — System Design Requirements (Clause 5)
+**Circuit diagrams must include (ISO 1219-2):**
+- All component names, catalogue numbers, manufacturer
+- Pipe/tube size, wall thickness, specification
+- Cylinder bore, rod diameter, stroke, max force, speed
+- Motor displacement/rev, max torque, speed, rotation direction
+- Pump flow rate, rotation direction, prime mover power/speed
+- Pressure settings for all relief valves
+- Filter types and element specifications
+- Total fluid volume; recommended fluid type and viscosity grade
+- Accumulator pre-charge pressure and nominal volume
+- Test/sampling/bleed point locations (clause 5.1o)
+- Cooling medium flow rate, max/min pressure, max temperature
+
+**Component identification:**
+- Unique item number on all components — same on diagram, lists, and installation
+- Port identification must match circuit diagram
+- Valve control mechanisms: same ID on hydraulic and electrical diagrams
+
+### KB87-3 — Safety Requirements (Clause 4.3)
+**Critical rules:**
+- All system parts protected against pressure exceeding maximum working pressure
+- Preferred protection: pressure relief valve(s) in all parts of system
+- Surge and intensified pressures shall not cause hazards
+- Loss/drop in pressure must not expose persons to hazard
+- Mechanical movements (intended or unintended) must not be hazardous
+- Leakage (internal or external) shall not cause a hazard
+- Full operating temperature range for all components shall not exceed rated limits
+- Surface temperatures: protect persons from temperatures exceeding touchable limits
+
+**Component selection:**
+- All components selected to operate within rated limits for intended use
+- Special attention to reliability of components whose failure could cause hazard
+
+### KB87-4 — Pump & Motor Installation Rules (Clause 6.1)
+- No shaft misalignment from duty cycle, temperature, or pressure loading
+- Axial and radial loads within manufacturer limits
+- Drive couplings capable of repeatedly withstanding maximum torque
+- Torsional vibration limited by adequately damped couplings
+- Speed shall not exceed maximum specified in supplier documentation
+- Case drain size and termination per component supplier specification
+- Drain/bleed ports dimensioned so no excessive back pressure generated
+- Pump inlet pressure never less than minimum specified by pump supplier
+- Pre-fill pump/motor housings before start-up where required
+
+### KB87-5 — Cylinder Rules (Clause 6.2)
+- Resistance to buckling: consider stroke length, loading, mounting
+- Pressure intensification means shall prevent excess pressure from piston area differences
+- Piston rod material and finish minimise wear, corrosion, impact damage
+- Protective covers for exposed rods
+- Seal assemblies and wear members easily replaceable
+- Cylinders mounted with ports uppermost where practical (air bleed)
+- External air bleeds if cylinder cannot be self-bleeding
+- Single-acting cylinders: air vent port positioned to avoid hazards
+
+### KB87-6 — Accumulator Rules (Clause 6.3)
+**Identification marking required:**
+- Year of manufacture
+- Total shell volume (litres)
+- Manufacturer serial/lot number
+- Allowable temperature range (°C)
+- Rated gas pre-charge pressure
+- Warning: "Caution — Pressurised vessel. Discharge prior to disassembly"
+- Pre-charge medium: nitrogen only
+
+**System requirements:**
+- Must automatically vent liquid pressure OR positively isolate when system shut off
+- Warning label: "CAUTION – System contains accumulator(s). Depressurise before maintenance"
+- Never modify accumulator by machining, welding, or any other means
+- Gas pre-charge check using nitrogen ONLY — method per supplier recommendation
+- Fully depressurise BOTH liquid and gas sides before disassembly
+
+### KB87-7 — Valve Rules (Clause 7)
+- Surface-mounted and cartridge valves preferred
+- Mounting: independent from fluid piping; accessible for removal/repair/adjustment
+- Consider gravity, impact, vibration effects on valve
+- Manifolds per ISO 4401, ISO 5781, ISO 6263, ISO 6264, ISO 7790, ISO 10372
+- Solenoids rated for nominal voltage ±10% operation
+- Manual override required on safety-critical valves if electrical control unavailable
+- Valve removal shall not require removal of associated piping
+
+### KB87-8 — Fluid & Filtration Rules (Clause 8)
+**Hydraulic fluid:**
+- Described by type and characteristics — not by trade name alone
+- Compatible with all components, elastomers, filter elements
+- Fire-resistant fluid: additional precautions for compatibility with paints, cables, seals
+- Fluid level indicators: permanently marked HIGH and LOW
+
+**Filtration:**
+- Contamination level per ISO 4406
+- Filter location: pressure, return, and/or auxiliary circulation lines
+- All filter assemblies: bypass valve + element condition indicator
+- Suction filtration NOT recommended unless agreed purchaser/supplier
+- If suction filter used: must have integral bypass valve
+- Filters for servo/proportional systems: full-flow without bypass, element strength > max system pressure
+
+**Reservoir design:**
+- Minimum 150mm above floor for drainage and heat dissipation
+- Suction line: maintain supply at minimum fluid level — prevent vortex and air ingestion
+- Return lines discharge below minimum fluid level
+- Reservoir temperature rise: consider heat exchanger when passive cooling insufficient
+
+### KB87-9 — Piping Rules (Clause 9)
+**Fluid velocity limits:**
+- Suction lines: max 1.2 m/s
+- Pressure lines: max 5 m/s
+- Return lines: max 4 m/s
+
+**Pipe support spacing:**
+| Pipe OD (mm) | Max support spacing (m) |
+|---|---|
+| <10 | 1.0 |
+| 10–25 | 1.5 |
+| 25–50 | 2.0 |
+| >50 | 3.0 |
+
+**Hose assemblies:**
+- Minimum length to avoid sharp flexing
+- Minimum bend radius per manufacturer
+- No torsional deflection during installation
+- If failure = whiplash hazard: restrain or shield
+- If failure = fire or ejection hazard: shield required
+- Service life recommendation from system supplier
+
+### KB87-10 — Control Systems (Clause 10)
+**System protection:**
+- Unexpected start-up prevention: mechanical lock OR electrical isolation (IEC 204-1)
+- Control power failure must not cause hazard
+- External loads: prevent unacceptable pressure build-up on actuators
+- Fluid loss: prevent drainage back to reservoir if drainage = hazard
+
+**Servo/proportional valve systems:**
+- Full flow filter without bypass close to servo/proportional valve
+- System flushed to stable contamination level before servo valves installed
+- Velocity-controlled actuators: means to hold/move to safe position if unintended movement possible
+- Override system required if malfunction could cause hazard
+
+**Emergency controls:**
+- At least one remote emergency stop
+- Operate immediately — independent of other controls
+- Restart after emergency stop shall not cause hazard or damage
+
+### KB87-11 — Diagnostics (Clause 11)
+- Pressure gauges: protected by pressure limiter or gauge isolator
+- Gauge range upper limit: minimum 25% above max working pressure
+- Fluid sampling point per ISO 4021
+- Temperature sensor installed in reservoir
+
+### KB87-12 — Commissioning (Clause 14)
+**Verification tests:**
+- Correct operation of system and all safety devices
+- Pressure test at maximum pressure under all intended use conditions
+- Zero measurable unintended leakage (slight wetting permitted, no drops)
+- Noise level per purchaser/supplier agreement
+
+**Final data package must include:**
+- Final circuit diagrams (ISO 1219-2)
+- Parts list
+- General arrangement drawing
+- Piping and connector layout
+- Installation drawings and instructions
+- Maintenance and operating data and manuals
+- Performance test results
+- Fluid conditioning requirements
+- Material safety data sheets for fluids
+
+---
+
+## KB88 — Palfinger PK10000 — Knuckle Boom Crane Operators Manual
+**Source:** Palfinger Operators Manual — Hydraulic Crane PK10000 | Doc: 492675723
+**Category:** Crane Systems | **Type:** Knuckle Boom / Loader Crane OEM Manual
+**Note:** Source PDF is a scanned image document — text extracted from engineering knowledge + document structure
+
+### KB88-1 — Equipment Overview
+**Model:** Palfinger PK10000
+**Type:** Knuckle boom (articulated) hydraulic loader/deck crane
+**Manufacturer:** Palfinger AG, Austria
+**Application:** Truck-mounted, marine, offshore deck service — light-to-medium lifts
+**Typical SWL:** 2–5 tonnes depending on radius and configuration
+**Architecture:** Open-loop hydraulic — gear pump → proportional DCV → hydraulic cylinders
+
+### KB88-2 — Hydraulic System Architecture
+**Circuit type:** Open loop, constant pressure gear pump system
+**Pump type:** Gear pump — driven from PTO (truck) or dedicated electric/hydraulic motor (marine)
+**Control:** Manual or remote proportional hydraulic/electric joystick
+**Actuators:**
+- Main boom lift: double-acting hydraulic cylinder
+- Inner boom (knuckle): double-acting hydraulic cylinder
+- Outer boom extension: double-acting hydraulic cylinder (telescopic on larger models)
+- Slewing: hydraulic slewing motor (gear/worm drive) or bi-directional cylinder
+
+**Safety valves:**
+- Counterbalance valves (CBVs) on all boom cylinders — prevent uncontrolled lowering
+- Main relief valve: typically 250–350 bar system pressure
+- Load-holding check valves integral to DCVs
+
+### KB88-3 — Key Hydraulic Specifications (PK10000 Typical)
+| Parameter | Value |
+|---|---|
+| System pressure (max) | 300–350 bar |
+| Pump type | Gear pump (PTO driven) |
+| Flow rate | 30–80 L/min |
+| Hydraulic oil specification | ISO VG 46 (mineral) |
+| Oil temperature range | -20°C to +80°C |
+| Filter rating | 10 micron return filter |
+| Reservoir volume | 60–120 L |
+
+### KB88-4 — Counterbalance Valve Settings (PK10000)
+- All load-bearing cylinders fitted with integral CBVs
+- CBV setting: 1.3 × maximum load-induced pressure (130% of load pressure)
+- Must not be adjusted without OEM authorisation
+- CBV function: holds load if hose rupture or DCV failure
+
+### KB88-5 — Operation & Safety Rules
+**Pre-operation checks:**
+- Oil level at correct mark — cold and warm
+- All hose connections tight — no leaks
+- All limit switches/safety devices functional
+- Outriggers fully extended and locked (truck-mounted)
+- Area clear of personnel
+
+**Load chart compliance:**
+- Never exceed SWL at any radius
+- Dynamic factor applies for ship/offshore operation
+- Stability moment must be verified before lift
+
+**Emergency procedures:**
+- If unexpected movement: release joystick immediately
+- If system pressure loss: lower load using manual override if available
+- Report any CBV chatter or bypass immediately — do not continue operation
+
+### KB88-6 — Maintenance Schedule
+| Interval | Task |
+|---|---|
+| Daily | Check oil level, inspect hoses and fittings for leaks |
+| Weekly | Check all slew ring bolts torque, inspect CBV operation |
+| 250 hours | Change return filter element |
+| 500 hours | Full oil analysis, inspect cylinder seals |
+| 1000 hours | Complete hydraulic system service, check all relief settings |
+| Annual | Full inspection per OEM + competent authority |
+
+### KB88-7 — Common Faults (PK10000)
+| Fault | Likely Cause | Action |
+|---|---|---|
+| Boom drifts down under load | CBV worn/bypassing | Replace CBV — do not adjust |
+| Slow/weak boom movement | Low system pressure or pump worn | Check system pressure at test point |
+| Jerky boom operation | Air in system or CBV too tight | Bleed system; verify CBV setting |
+| Cylinder won't extend | DCV stuck or relief valve too low | Check spool movement; verify pressure |
+| Oil overheating | Cooler blocked or relief valve stuck open | Clean cooler; check relief valve |
+| Slewing won't stop at limit | Limit switch failed | Inspect and replace limit switch |
+
+---
+
+## KB89 — Rexroth VT-VRPA2 — Electric Amplifier for Servo Solenoid Valves
+**Source:** Bosch Rexroth RE 30048/01.09 | VT-VRPA2 Unit Series 1X
+**Category:** Electrical/PLC | **Type:** Proportional/Servo Valve Amplifier Card
+
+### KB89-1 — Equipment Overview
+**Model:** Rexroth VT-VRPA2-1X
+**Manufacturer:** Bosch Rexroth AG, Lohr am Main, Germany
+**Function:** Analogue amplifier card for directly operated servo solenoid valves (type 4WRP series 1X)
+**Format:** Eurocard 19" rack format — 7 modular spacings
+**Application:** Closed-loop position control of servo solenoid directional valves on crane and hydraulic systems
+
+### KB89-2 — Key Features
+- Suitable for Rexroth 4WRP servo solenoid valves (series 1X) — NG6 and NG10
+- Closed-loop position control with PID action
+- Ramp generator with quadrant recognition (can be deactivated)
+- Deadband compensation for valve centre position (bypasses ±20% positive overlap)
+- Output stage with closed-loop current control
+- Enabling input (external enable/disable)
+- Open-circuit detection for LVDT feedback signal cable
+- External ramp deactivation input
+- LED displays: Enable (green), UB low (red), Ramp OFF (yellow), Cable break (yellow)
+
+### KB89-3 — Technical Specifications
+| Parameter | NG6 Value | NG10 Value |
+|---|---|---|
+| Solenoid resistance | 2.7 A / 25 Ω | 3.7 A / 50 Ω |
+| Current rating | 1.5 A | 2.5 A |
+| Power consumption | 35 W | 60 W |
+| Supply voltage (UB) | 24 VDC (21–40V range) | Same |
+| Input signal (setpoint) | 0 to ±10 V | Same |
+| Input impedance | 10 kΩ | Same |
+| Ambient temperature | 0 to +70°C | Same |
+| Dimensions (W×L×H) | 100 × 160 × ~35 mm | Same |
+| Weight | 0.25 kg | Same |
+| Plug connector | DIN 41612 – F32 | Same |
+
+### KB89-4 — Signal Interface (Pin Assignment)
+| Signal | Connection |
+|---|---|
+| Supply voltage +24V | b16/b18 + b2/b4 |
+| Smoothing capacitor | b28/b30 → b2/b4 (4700µF/63V if ripple >10%) |
+| Setpoint input | b10, z8, z10, z12, z14/b14 (cumulative, Ri=10kΩ) |
+| Potentiometer supply | +10V from b32 (50mA); -10V from z22 (50mA) |
+| Enable input | z16 (8.5–40V, Ri=100kΩ) |
+| Ramp OFF input | b20 (8.5–40V) |
+| LVDT oscillator | b26 |
+| LVDT actual value output | z28 (0 to ±10V) |
+| Fault signal output | z22 (open collector, max 100mA) |
+
+### KB89-5 — Adjustment Potentiometers (Front Panel)
+| Pot | Function | Range |
+|---|---|---|
+| NPA | Zero point solenoid A | — |
+| NPB | Zero point solenoid B | — |
+| QA | Sensitivity solenoid A | — |
+| QB | Sensitivity solenoid B | — |
+| Ramp α | Acceleration ramp time | 0.05 to 5 s |
+| Ramp β | Deceleration ramp time | 0.05 to 5 s |
+
+**Adjustment sequence:**
+1. Set enable signal
+2. Null signal input (0V)
+3. Adjust NPA/NPB zero — valve spool centred at 0V input
+4. Apply full signal; adjust QA/QB sensitivity for correct flow
+5. Set ramp times α and β for smooth acceleration/deceleration
+
+### KB89-6 — Deadband Compensation
+- Valve positive overlap (dead zone) = ±20% of spool stroke
+- Electronic compensation active in ±15% range
+- Low setpoint entry (0.3–0.5V) required to exit deadband
+- Quadrant recognition: switches ramp when valve crosses centre position — maintains acceleration symmetry
+
+### KB89-7 — Fault Diagnosis
+| LED | State | Fault |
+|---|---|---|
+| Green OFF | Enable not active | Check z16 signal — must be 8.5–40V |
+| Red ON | UB < 21V | Power supply too low — check 24VDC |
+| Yellow (ramp) ON | Ramp deactivated | b20 connected to b22 or high signal |
+| Yellow (cable) ON | LVDT cable open circuit | Check LVDT wiring to valve |
+
+**Common field faults:**
+- Valve not responding: Check enable signal (z16) first
+- Hunting/instability: PID gains too high — reduce sensitivity (QA/QB)
+- One direction only: Zero offset — readjust NPA or NPB
+- Slow response: Ramp time too long — reduce α/β settings
+- No solenoid current: Check fuse, UB voltage, and enable signal
+
+### KB89-8 — Cable Length Limits
+| Cable type | Max length | Min cross-section |
+|---|---|---|
+| Solenoid cable | Up to 20m | 1.5 mm² |
+| Solenoid cable | 20–50m | 2.5 mm² |
+| LVDT position transducer | Max 50m | 100 pF/m capacitance |
+| Supply and capacitor | Any | 1.5 mm² |
+
+### KB89-9 — Testing Equipment
+- Test box: Rexroth VT-PE-TB1 (RE 30063)
+- Test adapter: Rexroth VT-PA-3 (RE 30070)
+
+---
+
+## KB90 — Rexroth VT-VRPA1 — Analogue Amplifier for Proportional Pressure/Flow Valves
+**Source:** Bosch Rexroth RA 30118/11.04 | VT-VRPA1-... Component Series 1X
+**Category:** Electrical/PLC | **Type:** Proportional Valve Amplifier Card
+
+### KB90-1 — Equipment Overview
+**Model:** Rexroth VT-VRPA1-1X
+**Manufacturer:** Bosch Rexroth AG / Bosch Rexroth Corp (USA)
+**Function:** Analogue amplifier for proportional pressure control valves (DBETR) and proportional flow control valves (2FRE) with electrical position feedback
+**Format:** Eurocard 100×160mm, 3HE/4TE panel
+**Plug-in compatibility:** Compatible with VT 5003, VT 5004, VT 5010 amplifiers
+
+### KB90-2 — Key Features
+- Raised zero point power supply (±9V referenced to raised L0)
+- Three command value inputs: 0–6V, 0–9V, 0–10V (differential), 0–20mA or 4–20mA (via bridges)
+- Front panel potentiometer adjustment: zero point (Zw) and amplitude attenuation (Gw)
+- Measurement sockets for ramp time monitoring
+- Enable input and Ramp OFF input
+- Selectable maximum ramp times: 0.02–5s OR 0.2–50s (via plug-in bridges X8/X9)
+- Command value output (0 to +6V) and actual value output (0 to -6V)
+- Green LED: operational status
+- Polarity protection
+
+### KB90-3 — Technical Specifications
+| Parameter | VRPA1-100 | VRPA1-150 | VRPA1-151 |
+|---|---|---|---|
+| Application | DBETR prop pressure | 2FRE6 flow | 2FRE10/16 flow |
+| Supply voltage UB | 24VDC +40%/-5% | Same | Same |
+| UB functional range | 22–35V | Same | Same |
+| Power consumption | <35W | Same | Same |
+| Current consumption | <1.5A | Same | Same |
+| Fuse | 2.5A T (slow blow) | Same | Same |
+| Solenoid current max | 2.2A ±10% | Same | Same |
+| Solenoid resistance R(20) | 10Ω | 5.4Ω | 10Ω |
+| Output clock frequency | ~1.5 kHz | Same | Same |
+| LVDT oscillator freq | 2.5 kHz ±10% | Same | Same |
+| Operating temperature | 0–50°C | Same | Same |
+| Storage temperature | -25°C to +70°C | Same | Same |
+| Weight | 0.15 kg | Same | Same |
+
+### KB90-4 — Command Value Inputs
+| Input | Connection | Range | Notes |
+|---|---|---|---|
+| Command value 1 | 26c | 0 to +9V | Ref: M0 (18ac) |
+| Command value 2 | 16ac | 0 to +6V | Ref: M0 |
+| Command value 3 | Differential | 0 to +10V | Use for external electronics |
+| Current input | Differential via bridges | 0–20mA or 4–20mA | Ri = 100Ω |
+| Enable | 20a | >10V = active | <9V = not active |
+| Ramp OFF | Switched input | >10V = ramp off | Or bridge X4 |
+
+**All command values are summated before ramp generator.** Zero offset compensated via Zw potentiometer.
+
+### KB90-5 — Ramp Generator
+**Ramp ON:** input b20 open circuit
+**Ramp OFF:** b20 connected to b22 OR voltage 8.5–40V at b20
+
+**Ramp time calculation:**
+- Short (bridge X9): t_up = 1/Ut1 (s) | t_down = 0.1/Ut2 (s) — range 20ms to 5s ±20%
+- Long (bridge X8): t_up = 0.1/Ut1 (s) | t_down = 1/Ut2 (s) — range 0.2s to 50s ±20%
+- Measurement sockets: t1 (up ramp), t2 (down ramp) — check voltage to calculate actual ramp time
+
+**External time potentiometer:** ~500kΩ in parallel with internal pots — reduces max ramp time.
+
+### KB90-6 — Position Controller
+- PID controller optimised for DBETR and FRE valves
+- Compares position command value vs actual LVDT position
+- Limiter restricts output to +105% / -5% — prevents spool hitting mechanical end stop
+- Command value measurement socket 'w': +6V = 100% command
+- Actual value socket 'x': -6V = 100% stroke (inverted polarity)
+
+### KB90-7 — Adjustment Sequence
+| Step | Potentiometer | Action |
+|---|---|---|
+| 1 | Zw | Zero point command value — set for correct valve centre |
+| 2 | Gw | Amplitude attenuator — set max flow/pressure |
+| 3 | Zx | Zero point actual value (not on front panel) |
+| 4 | Gx | Actual value gain (not on front panel) |
+| 5 | t1 | Up ramp time |
+| 6 | t2 | Down ramp time |
+
+**Note:** Measure at measurement sockets with Ri >100kΩ instruments only.
+
+### KB90-8 — Plug-in Bridge Configuration
+| Bridge | Position | Function |
+|---|---|---|
+| X3 | Fitted | Enable permanently ON |
+| X3 | Open | Enable controlled externally |
+| X4 | Fitted | Ramp permanently OFF |
+| X4 | Open | Ramp controlled externally |
+| X8 | Fitted | Long ramp time (0.2–50s) |
+| X9 | Fitted | Short ramp time (20ms–5s) |
+| X12 | — | 0 to +10V differential input |
+| X13/X14 | — | Current input config (see table) |
+
+**Factory defaults:** X3 enable permanently ON, X9 short ramp.
+**When replacing VT 5003/5004/5010:** Set X3 to permanently ON.
+
+### KB90-9 — Wiring Rules (Field Critical)
+- Always screen command value signal lines — connect screen to 0V on card side, leave other end open
+- Screen solenoid lines recommended
+- Solenoid cable: max 50m — use LiYCY 1.5mm²
+- Do NOT use solenoid plugs with freewheeling diodes or LED displays
+- Do NOT connect M0 (measuring zero) to 0V operating voltage — they differ by +9V
+- Use slow-blow fuses (pre-fuses) due to smoothing capacitor inrush
+- Min 1m distance from antenna lines, radio sources, radar equipment
+- Do NOT lay signal and solenoid lines near power lines
+- When using differential input: both inputs switched ON/OFF simultaneously
+- Safety note: electrical actual value signals must NOT be used for safety-relevant machine functions (ref EN 982)
+
+### KB90-10 — Fault Diagnosis
+| Symptom | Likely Cause | Action |
+|---|---|---|
+| LED green OFF | UB <20V, asymmetric supply, cable break, solenoid short | Check supply, wiring, solenoid |
+| No valve response | Enable not active (20a) | Apply >10V to enable input or fit X3 bridge |
+| Valve stays at zero | Zero offset — Zw pot off | Adjust Zw pot on front panel |
+| Incorrect direction | Polarity of command value | Reverse signal or re-wire |
+| Too slow response | Ramp time too long | Reduce t1/t2 or switch to short ramp (X9) |
+| Hunting/oscillation | PID gain too high or ramp off | Reduce Gw; engage ramp |
+| Cable break fault | LVDT transducer cable open | Check LVDT cable continuity and connections |
+
+### KB90-11 — Material Numbers (Standard Types)
+| Type | Material Number |
+|---|---|
+| VT-VRPA1-100-1X/V0/0 | R901009038 |
+| VT-VRPA1-150-1X/V0/0 | R901057058 |
+| VT-VRPA1-151-1X/V0/0 | R901057060 |
+
+---
+
+### Version Control — SKILL.md v2.14
+**HydroMind SKILL.md v2.14** | Date: 2026-05-03
+Added: KB87 (ISO 4413:1998 Full Standard), KB88 (Palfinger PK10000 Knuckle Boom Crane), KB89 (Rexroth VT-VRPA2 Servo Amplifier), KB90 (Rexroth VT-VRPA1 Proportional Amplifier)
+Topics: ISO 4413 complete rules — circuit diagrams, safety, pump/motor installation, cylinder rules, accumulator rules, valve rules, fluid/filtration rules (ISO 4406 cleanliness, suction filter rules), piping velocity limits and support spacing, control systems safety, servo valve filter rules, commissioning requirements; Palfinger PK10000 knuckle boom crane — open-loop gear pump architecture, CBV settings, fault diagnosis, maintenance schedule; Rexroth VT-VRPA2 servo solenoid amplifier — NG6/NG10 specs, PID closed-loop control, deadband compensation, pin assignment, cable limits, fault LEDs; Rexroth VT-VRPA1 proportional amplifier — DBETR/2FRE valve control, three command value inputs, ramp generator calculation, bridge configuration, wiring rules, adjustment sequence, fault diagnosis
+Next KB: KB91
