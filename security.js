@@ -101,7 +101,7 @@ function validateChatRequest(req, res, next) {
   req.body.model = 'claude-sonnet-4-5';
 
   // Cap max_tokens
-  req.body.max_tokens = Math.min(parseInt(max_tokens) || 1000, 2000);
+  req.body.max_tokens = Math.min(parseInt(max_tokens) || 2000, 3000);
 
   next();
 }

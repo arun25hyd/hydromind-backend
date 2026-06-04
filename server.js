@@ -150,7 +150,7 @@ app.post("/api/chat", chatLimiter, validateChatRequest, async (req, res) => {
   try {
     const { model, max_tokens, system, messages, tools } = req.body;
     if (!messages) return res.status(400).json({ error: "messages required" });
-    const body = { model: model || "claude-sonnet-4-5", max_tokens: max_tokens || 1000, messages };
+    const body = { model: model || "claude-sonnet-4-5", max_tokens: max_tokens || 2000, messages };
     if (system) body.system = system;
     if (tools) body.tools = tools;
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -922,13 +922,3 @@ async function triggerKbSync(docId, docName, record) {
 
 app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
 
-// ── KEEP-ALIVE: ping self every 14 minutes to prevent Render sleep ─────────
-const SELF_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-setInterval(async () => {
-  try {
-    await fetch(`${SELF_URL}/`);
-    console.log("Keep-alive ping sent");
-  } catch (e) {
-    console.log("Keep-alive ping failed:", e.message);
-  }
-}, 14 * 60 * 1000); // every 14 minutes
