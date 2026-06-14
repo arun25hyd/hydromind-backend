@@ -831,7 +831,7 @@ app.post('/api/contact', generalLimiter, async (req, res) => {
         },
         body: JSON.stringify({
           from: 'HydroMind AI Feedback <noreply@hydromindai.com>',
-          to: ['arun25hyd@gmail.com'],
+          to: ['support@hydromindai.com'],
           reply_to: email,
           subject: `[HydroMind Feedback] ${topic || 'General'} — ${rating || 'No rating'} from ${name}`,
           html: `
