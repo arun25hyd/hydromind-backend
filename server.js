@@ -202,37 +202,29 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     }).eq("email", email.toLowerCase().trim());
 
     // Build reset link pointing to frontend
-    const frontendUrl = process.env.FRONTEND_URL || "https://hydromind-frontend.vercel.app";
+    const frontendUrl = process.env.FRONTEND_URL || 'https://www.hydromindai.com';
     const resetLink = `${frontendUrl}?reset=${resetToken}`;
 
-    // Send email via Supabase (uses your Supabase SMTP settings)
-    // Using Resend/SMTP via fetch — simple approach using EmailJS-style API
-    // We'll use a simple mailto approach via Supabase's built-in email
-    const emailRes = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.RESEND_API_KEY || ""}`
-      },
+    // Send password reset email via EmailJS API (server-side)
+    // Requires "Allow API from non-browser environments" ON in EmailJS dashboard → Account → Security
+    const ejsRes = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'origin': 'https://www.hydromindai.com' },
       body: JSON.stringify({
-        from: "HydroMind AI <noreply@hydromindai.com>",
-        to: [email],
-        subject: "HydroMind AI — Password Reset",
-        html: `
-          <div style="font-family:monospace;background:#020510;color:#d0e8ff;padding:32px;max-width:480px;margin:0 auto;border:1px solid #0f2244;border-radius:4px;">
-            <h2 style="color:#00ccff;letter-spacing:0.1em;">HYDRO<span style="color:#fff">MIND</span> AI</h2>
-            <p>You requested a password reset for your HydroMind AI account.</p>
-            <p>Click the button below to reset your password. This link expires in <strong>1 hour</strong>.</p>
-            <a href="${resetLink}" style="display:inline-block;background:#00ccff;color:#000;padding:12px 28px;border-radius:3px;text-decoration:none;font-weight:bold;letter-spacing:0.1em;margin:16px 0;">RESET PASSWORD</a>
-            <p style="color:#4a7aaa;font-size:0.85em;">If you did not request this, ignore this email. Your password will not change.</p>
-            <p style="color:#4a7aaa;font-size:0.85em;">Link: ${resetLink}</p>
-          </div>
-        `
+        service_id:  'service_0bvul2t',
+        template_id: 'template_password_reset',
+        user_id:     'rU58VWQaobdBVthru',
+        template_params: {
+          to_email:   email,
+          from_name:  'HydroMind AI',
+          reset_link: resetLink,
+          user_name:  users[0].email
+        }
       })
     });
 
-    if (!emailRes.ok && process.env.RESEND_API_KEY) {
-      console.error("Email send failed:", await emailRes.text());
+    if (!ejsRes.ok) {
+      console.error('EmailJS reset email failed:', ejsRes.status, await ejsRes.text().catch(() => ''));
     }
 
     res.json({ success: true, message: "If this email is registered, a reset link has been sent." });
