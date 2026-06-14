@@ -277,26 +277,6 @@ app.post("/api/auth/reset-password", async (req, res) => {
   }
 });
 
-// ── TEMPORARY ADMIN: direct password reset by email (protected by webhook secret)
-// REMOVE THIS ENDPOINT AFTER USE
-app.post('/api/admin/force-pw-reset', async (req, res) => {
-  try {
-    const { email, newPassword, adminKey } = req.body;
-    if (adminKey !== 'HM-TEMP-RESET-2026') return res.status(403).json({ error: 'forbidden' });
-    if (!email || !newPassword) return res.status(400).json({ error: 'email and newPassword required' });
-    if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    const bcryptjs = require('bcryptjs');
-    const hashed = await bcryptjs.hash(newPassword, 10);
-    const { data, error } = await supabase.from('users')
-      .update({ password_hash: hashed, reset_token: null, reset_expires: null })
-      .eq('email', email.toLowerCase().trim())
-      .select('id, email, name');
-    if (error) throw error;
-    if (!data || data.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ success: true, message: `Password reset for ${data[0].email}`, user: data[0].name });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // ══════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════════════════════════════════
