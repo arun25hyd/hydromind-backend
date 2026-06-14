@@ -797,6 +797,74 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
+// ── CONTACT FORM ENDPOINT ─────────────────────────────────────────────────
+// Receives feedback form submissions, saves to Supabase + emails via Resend
+app.post('/api/contact', generalLimiter, async (req, res) => {
+  try {
+    const { name, email, role, topic, rating, message } = req.body;
+    if (!name || !email || !message) {
+      return res.status(400).json({ error: 'Name, email and message are required' });
+    }
+
+    // 1. Save to Supabase (always — works even without Resend)
+    const { error: dbError } = await supabase.from('contact_submissions').insert({
+      name: name.substring(0, 100),
+      email: email.toLowerCase().trim().substring(0, 200),
+      role: (role || 'Not specified').substring(0, 100),
+      topic: (topic || 'General').substring(0, 100),
+      rating: (rating || 'Not rated').substring(0, 20),
+      message: message.substring(0, 2000),
+      created_at: new Date().toISOString()
+    });
+    if (dbError) {
+      // Table may not exist yet — log but don't fail
+      console.warn('Contact Supabase insert (non-critical):', dbError.message);
+    }
+
+    // 2. Send email via Resend (if API key is configured)
+    if (process.env.RESEND_API_KEY) {
+      const emailRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`
+        },
+        body: JSON.stringify({
+          from: 'HydroMind AI Feedback <noreply@hydromindai.com>',
+          to: ['arun25hyd@gmail.com'],
+          reply_to: email,
+          subject: `[HydroMind Feedback] ${topic || 'General'} — ${rating || 'No rating'} from ${name}`,
+          html: `
+            <div style="font-family:Arial,sans-serif;background:#060d11;color:#e8f4ff;padding:32px;max-width:560px;margin:0 auto;border:1px solid #1b2d40;border-radius:8px;">
+              <h2 style="color:#22d3ee;margin:0 0 20px;letter-spacing:0.05em;">HydroMind AI — Feedback</h2>
+              <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                <tr><td style="padding:8px 12px;color:#7d909c;width:100px;">From</td><td style="padding:8px 12px;font-weight:700;">${name}</td></tr>
+                <tr style="background:rgba(255,255,255,0.03)"><td style="padding:8px 12px;color:#7d909c;">Email</td><td style="padding:8px 12px;"><a href="mailto:${email}" style="color:#22d3ee;">${email}</a></td></tr>
+                <tr><td style="padding:8px 12px;color:#7d909c;">Role</td><td style="padding:8px 12px;">${role || 'Not specified'}</td></tr>
+                <tr style="background:rgba(255,255,255,0.03)"><td style="padding:8px 12px;color:#7d909c;">Topic</td><td style="padding:8px 12px;">${topic || 'General'}</td></tr>
+                <tr><td style="padding:8px 12px;color:#7d909c;">Rating</td><td style="padding:8px 12px;">${rating || 'Not rated'}</td></tr>
+              </table>
+              <div style="margin-top:20px;padding:16px;background:rgba(34,211,238,0.05);border:1px solid rgba(34,211,238,0.15);border-radius:6px;">
+                <div style="font-size:11px;color:#7d909c;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Message</div>
+                <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;">${message.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+              </div>
+              <div style="margin-top:16px;font-size:11px;color:#4a5568;">Submitted via HydroMind.AI feedback form</div>
+            </div>
+          `
+        })
+      });
+      if (!emailRes.ok) {
+        console.error('Contact email via Resend failed:', await emailRes.text());
+      }
+    }
+
+    res.json({ success: true, message: 'Thank you for your feedback!' });
+  } catch (e) {
+    console.error('Contact endpoint error:', e.message);
+    res.status(500).json({ error: 'Failed to submit feedback. Please try again.' });
+  }
+});
+
 // HydroMind KB Upload Webhook
 app.post('/webhook/kb-upload', enforceWebhookSecret, async function(req, res) {
   try {
