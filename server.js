@@ -818,35 +818,6 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
-// ── TEMP: SMTP diagnostic (remove after testing) ──────────────────────────
-app.get('/api/admin/smtp-test', async (req, res) => {
-  const secret = req.headers['x-test-secret'];
-  if (secret !== 'HM-DIAG-2026') return res.status(403).json({ error: 'forbidden' });
-  const info = {
-    ZOHO_USER_SET: !!process.env.ZOHO_USER,
-    ZOHO_PASS_SET: !!process.env.ZOHO_PASS,
-    ZOHO_USER_VALUE: process.env.ZOHO_USER || 'NOT SET'
-  };
-  try {
-    const verified = await zohoTransporter.verify();
-    info.smtp_verify = verified ? 'OK' : 'FAILED';
-  } catch (e) {
-    info.smtp_verify = 'ERROR: ' + e.message;
-  }
-  try {
-    const result = await zohoTransporter.sendMail({
-      from: `"HydroMind AI" <${process.env.ZOHO_USER}>`,
-      to: process.env.ZOHO_USER,
-      subject: 'HydroMind SMTP Diagnostic Test',
-      text: 'If you receive this, Zoho SMTP is working correctly.'
-    });
-    info.send_result = 'OK: ' + result.messageId;
-  } catch (e) {
-    info.send_result = 'ERROR: ' + e.message;
-  }
-  res.json(info);
-});
-
 // ── CONTACT FORM ENDPOINT ─────────────────────────────────────────────────
 // Receives feedback form submissions, saves to Supabase + emails via Resend
 app.post('/api/contact', generalLimiter, async (req, res) => {
