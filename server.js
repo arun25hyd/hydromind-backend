@@ -298,23 +298,6 @@ app.post("/api/auth/reset-password", async (req, res) => {
   }
 });
 
-// TEMP: force password reset — REMOVE AFTER USE
-app.post('/api/admin/force-pw-reset', async (req, res) => {
-  try {
-    const { email, newPassword, adminKey } = req.body;
-    if (adminKey !== 'HM-RESET-0615') return res.status(403).json({ error: 'forbidden' });
-    const bcryptjs = require('bcryptjs');
-    const hashed = await bcryptjs.hash(newPassword, 10);
-    const { data, error } = await supabase.from('users')
-      .update({ password_hash: hashed, reset_token: null, reset_expires: null })
-      .eq('email', email.toLowerCase().trim())
-      .select('id, email, name');
-    if (error) throw error;
-    if (!data || data.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ success: true, user: data[0].email });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // ══════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════════════════════════════════
