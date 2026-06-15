@@ -5,6 +5,7 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 const { helmetMiddleware, chatLimiter, authLimiter, kbSearchLimiter, generalLimiter, validateChatRequest, validateAuthRequest, validateKBChatRequest, safeError, enforceWebhookSecret, requestLogger } = require("./security");
@@ -13,7 +14,40 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-// ── SUPABASE CLIENT ────────────────────────────────────────────────────────
+// ── ZOHO SMTP TRANSPORTER ──────────────────────────────────────────────────
+const zohoTransporter = nodemailer.createTransport({
+  host: 'smtp.zoho.com',
+  port: 465,
+  secure: true, // SSL
+  auth: {
+    user: process.env.ZOHO_USER, // e.g. support@hydromindai.com
+    pass: process.env.ZOHO_PASS  // Zoho app password
+  }
+});
+
+async function sendEmail({ to, subject, html, replyTo }) {
+  if (!process.env.ZOHO_USER || !process.env.ZOHO_PASS) {
+    console.warn('[EMAIL] ZOHO_USER or ZOHO_PASS not set — skipping email send');
+    return false;
+  }
+  try {
+    await zohoTransporter.sendMail({
+      from: `"HydroMind AI" <${process.env.ZOHO_USER}>`,
+      to,
+      subject,
+      html,
+      replyTo: replyTo || process.env.ZOHO_USER
+    });
+    return true;
+  } catch (err) {
+    console.error('[EMAIL] Zoho SMTP error:', err.message);
+    return false;
+  }
+}
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY,
@@ -205,27 +239,25 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'https://www.hydromindai.com';
     const resetLink = `${frontendUrl}?reset=${resetToken}`;
 
-    // Send password reset email via EmailJS API (server-side)
-    // Requires "Allow API from non-browser environments" ON in EmailJS dashboard → Account → Security
-    const ejsRes = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'origin': 'https://www.hydromindai.com' },
-      body: JSON.stringify({
-        service_id:  'service_0bvul2t',
-        template_id: 'template_password_reset',
-        user_id:     'rU58VWQaobdBVthru',
-        template_params: {
-          to_email:   email,
-          from_name:  'HydroMind AI',
-          reset_link: resetLink,
-          user_name:  users[0].email
-        }
-      })
+    // Send password reset email via Zoho SMTP
+    await sendEmail({
+      to: email,
+      subject: 'HydroMind AI — Password Reset',
+      html: `
+        <div style="font-family:Arial,sans-serif;background:#060d11;color:#e8f4ff;padding:32px;max-width:520px;margin:0 auto;border:1px solid #1b2d40;border-radius:10px;">
+          <h2 style="color:#22d3ee;margin:0 0 20px;font-size:22px;">HydroMind<span style="color:#fff">.AI</span></h2>
+          <p style="font-size:15px;line-height:1.6;color:#b4c2cc;">You requested a password reset for your HydroMind AI account.</p>
+          <p style="font-size:15px;line-height:1.6;color:#b4c2cc;">Click the button below to reset your password. This link expires in <strong style="color:#fff;">1 hour</strong>.</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${resetLink}" style="display:inline-block;background:#06b6d4;color:#03171c;padding:14px 32px;border-radius:9px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.03em;">Reset Password →</a>
+          </div>
+          <p style="font-size:12px;color:#4a5568;line-height:1.5;">If you did not request this, ignore this email — your password will not change.</p>
+          <p style="font-size:11px;color:#374151;margin-top:16px;word-break:break-all;">Link: ${resetLink}</p>
+          <hr style="border:none;border-top:1px solid #1b2d40;margin:20px 0;">
+          <p style="font-size:11px;color:#374151;">HydroMind.AI — Hydraulic Intelligence for Industry</p>
+        </div>
+      `
     });
-
-    if (!ejsRes.ok) {
-      console.error('EmailJS reset email failed:', ejsRes.status, await ejsRes.text().catch(() => ''));
-    }
 
     res.json({ success: true, message: "If this email is registered, a reset link has been sent." });
   } catch (e) {
@@ -813,42 +845,29 @@ app.post('/api/contact', generalLimiter, async (req, res) => {
       console.warn('Contact Supabase insert (non-critical):', dbError.message);
     }
 
-    // 2. Send email via Resend (if API key is configured)
-    if (process.env.RESEND_API_KEY) {
-      const emailRes = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`
-        },
-        body: JSON.stringify({
-          from: 'HydroMind AI Feedback <noreply@hydromindai.com>',
-          to: ['support@hydromindai.com'],
-          reply_to: email,
-          subject: `[HydroMind Feedback] ${topic || 'General'} — ${rating || 'No rating'} from ${name}`,
-          html: `
-            <div style="font-family:Arial,sans-serif;background:#060d11;color:#e8f4ff;padding:32px;max-width:560px;margin:0 auto;border:1px solid #1b2d40;border-radius:8px;">
-              <h2 style="color:#22d3ee;margin:0 0 20px;letter-spacing:0.05em;">HydroMind AI — Feedback</h2>
-              <table style="width:100%;border-collapse:collapse;font-size:14px;">
-                <tr><td style="padding:8px 12px;color:#7d909c;width:100px;">From</td><td style="padding:8px 12px;font-weight:700;">${name}</td></tr>
-                <tr style="background:rgba(255,255,255,0.03)"><td style="padding:8px 12px;color:#7d909c;">Email</td><td style="padding:8px 12px;"><a href="mailto:${email}" style="color:#22d3ee;">${email}</a></td></tr>
-                <tr><td style="padding:8px 12px;color:#7d909c;">Role</td><td style="padding:8px 12px;">${role || 'Not specified'}</td></tr>
-                <tr style="background:rgba(255,255,255,0.03)"><td style="padding:8px 12px;color:#7d909c;">Topic</td><td style="padding:8px 12px;">${topic || 'General'}</td></tr>
-                <tr><td style="padding:8px 12px;color:#7d909c;">Rating</td><td style="padding:8px 12px;">${rating || 'Not rated'}</td></tr>
-              </table>
-              <div style="margin-top:20px;padding:16px;background:rgba(34,211,238,0.05);border:1px solid rgba(34,211,238,0.15);border-radius:6px;">
-                <div style="font-size:11px;color:#7d909c;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Message</div>
-                <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;">${message.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-              </div>
-              <div style="margin-top:16px;font-size:11px;color:#4a5568;">Submitted via HydroMind.AI feedback form</div>
-            </div>
-          `
-        })
-      });
-      if (!emailRes.ok) {
-        console.error('Contact email via Resend failed:', await emailRes.text());
-      }
-    }
+    // 2. Send email via Zoho SMTP
+    await sendEmail({
+      to: process.env.ZOHO_USER, // support@hydromindai.com
+      replyTo: email,
+      subject: `[HydroMind Feedback] ${topic || 'General'} — ${rating || 'No rating'} from ${name}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;background:#060d11;color:#e8f4ff;padding:32px;max-width:560px;margin:0 auto;border:1px solid #1b2d40;border-radius:10px;">
+          <h2 style="color:#22d3ee;margin:0 0 20px;">HydroMind<span style="color:#fff">.AI</span> — Feedback</h2>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <tr><td style="padding:8px 12px;color:#7d909c;width:110px;">From</td><td style="padding:8px 12px;font-weight:700;">${name}</td></tr>
+            <tr style="background:rgba(255,255,255,0.03)"><td style="padding:8px 12px;color:#7d909c;">Email</td><td style="padding:8px 12px;"><a href="mailto:${email}" style="color:#22d3ee;">${email}</a></td></tr>
+            <tr><td style="padding:8px 12px;color:#7d909c;">Role</td><td style="padding:8px 12px;">${role || 'Not specified'}</td></tr>
+            <tr style="background:rgba(255,255,255,0.03)"><td style="padding:8px 12px;color:#7d909c;">Topic</td><td style="padding:8px 12px;">${topic || 'General'}</td></tr>
+            <tr><td style="padding:8px 12px;color:#7d909c;">Rating</td><td style="padding:8px 12px;">${rating || 'Not rated'}</td></tr>
+          </table>
+          <div style="margin-top:20px;padding:16px;background:rgba(34,211,238,0.05);border:1px solid rgba(34,211,238,0.15);border-radius:6px;">
+            <div style="font-size:11px;color:#7d909c;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Message</div>
+            <div style="font-size:14px;line-height:1.6;white-space:pre-wrap;">${message.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+          </div>
+          <p style="margin-top:16px;font-size:11px;color:#4a5568;">Submitted via HydroMind.AI feedback form</p>
+        </div>
+      `
+    });
 
     res.json({ success: true, message: 'Thank you for your feedback!' });
   } catch (e) {
