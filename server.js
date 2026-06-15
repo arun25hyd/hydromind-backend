@@ -1030,3 +1030,4 @@ async function triggerKbSync(docId, docName, record) {
 
 app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
 
+// force-redeploy-1781498432
