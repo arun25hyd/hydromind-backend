@@ -45,9 +45,6 @@ async function sendEmail({ to, subject, html, replyTo }) {
   }
 }
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY,
@@ -1030,4 +1027,3 @@ async function triggerKbSync(docId, docName, record) {
 
 app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
 
-// force-redeploy-1781498432
