@@ -83,9 +83,9 @@ function validateChatRequest(req, res, next) {
     if (typeof msg.content !== 'string') {
       return res.status(400).json({ error: 'Message content must be a string' });
     }
-    // Max 4000 chars per message
-    if (msg.content.length > 4000) {
-      return res.status(400).json({ error: 'Message too long. Maximum 4000 characters.' });
+    // Max 8000 chars per message (AI answers can be long — 4000 was too tight)
+    if (msg.content.length > 8000) {
+      return res.status(400).json({ error: 'Message too long. Maximum 8000 characters.' });
     }
   }
 
