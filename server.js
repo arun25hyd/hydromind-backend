@@ -633,7 +633,7 @@ app.post("/api/kb/upload", authMiddleware, upload.single("file"), async (req, re
         let processed = 0;
         for (const chunk of chunks) {
           const embedding = await getEmbedding(chunk);
-          await supabase.from("kb_chunks").insert({ doc_id: doc.id, doc_name: docName, category: category || "General", content: chunk, embedding: JSON.stringify(embedding), chunk_index: processed });
+          await supabase.from("kb_chunks").insert({ doc_id: doc.id, doc_name: docName, category: category || "General", content: chunk, searchable_text: chunk, embedding: JSON.stringify(embedding), chunk_index: processed });
           processed++;
           await new Promise(r => setTimeout(r, 200));
         }
@@ -653,6 +653,18 @@ app.get("/api/kb/documents", authMiddleware, async (req, res) => {
       .select("id, name, category, description, page_count, chunk_count, status, created_at")
       .order("created_at", { ascending: false });
     if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Get a single document's processing status (for upload-progress polling)
+app.get("/api/kb/documents/:id/status", authMiddleware, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from("kb_documents")
+      .select("id, name, status, chunk_count, page_count")
+      .eq("id", req.params.id)
+      .single();
+    if (error) return res.status(404).json({ error: "Document not found" });
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -839,7 +851,28 @@ const KB_ROUTE_MAP = [
     k: ['KB86'] },
 ];
 
-async function getKbContextForQuestion(question, topK) {
+async function getKbContextForQuestion(question, topK, docId) {
+  // Scoped mode: restrict entirely to one uploaded document's chunks, bypassing
+  // KB_ROUTE_MAP and whole-KB keyword search. Not cached by question text since
+  // the scope (docId) is the dominant filter, not the question wording.
+  if (docId) {
+    const { data, error } = await supabase
+      .from("kb_chunks")
+      .select("id, doc_id, doc_name, category, brand, component_type, content, searchable_text, tags")
+      .eq("doc_id", docId)
+      .order("chunk_index", { ascending: true });
+    if (error) {
+      console.error('KB scoped fetch error:', error.message);
+      return { chunks: [], found: false, source: 'scoped' };
+    }
+    // Fall back to `content` for older rows inserted before searchable_text was populated.
+    const normalized = (data || []).map(c => ({
+      ...c,
+      searchable_text: c.searchable_text || c.content || '',
+    }));
+    return { chunks: normalized, found: normalized.length > 0, source: 'scoped' };
+  }
+
   const cacheKey = kbCacheKey(question);
   const cached = kbCacheGet(cacheKey);
   if (cached) {
@@ -875,18 +908,24 @@ async function getKbContextForQuestion(question, topK) {
 
 app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, async (req, res) => {
   try {
-    const { question, history = [], system, answerPolicy = {} } = req.body;
+    const { question, history = [], system, answerPolicy = {}, docId } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
 
     const q_lower = question.toLowerCase();
-    console.log(`Query: "${question.slice(0,70)}"`);
+    console.log(`Query: "${question.slice(0,70)}"${docId ? ` [scoped to doc ${docId}]` : ''}`);
 
     // ── FETCH RELEVANT KB CONTEXT ─────────────────────────────────────────
-    const kbResult = await getKbContextForQuestion(question, 5);
-    const relevance = filterRelevantKbChunks(question, kbResult.chunks || []);
+    const kbResult = await getKbContextForQuestion(question, 5, docId);
+    // When scoped to a specific user-uploaded document, skip the generic/brand
+    // gate entirely — the user explicitly chose this document, so brand-specific
+    // content from it is exactly what they're asking for, not a leak.
+    const relevance = docId
+      ? { chunks: kbResult.chunks || [], found: kbResult.found, generic: false }
+      : filterRelevantKbChunks(question, kbResult.chunks || []);
     const chunks = relevance.chunks;
     const found = relevance.found;
     const genericQuestion = relevance.generic;
+
 
     let kbContext = "";
 
