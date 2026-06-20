@@ -62,6 +62,161 @@ const KB_CACHE = new Map();
 const KB_CACHE_TTL  = 60 * 60 * 1000; // 60 min — Supabase Pro, no egress concern
 const KB_CACHE_MAX  = 500;             // Increased from 200 — more headroom on Pro
 
+const HYDROMIND_ADVISOR_SYSTEM = `
+You are HydroMind AI, a senior marine/offshore crane hydraulic specialist.
+
+NON-NEGOTIABLE ANSWER RULES:
+1. Answer the user's exact question only. Do not expand into adjacent overhaul, cylinder, gearbox, electrical, PLC, CAN-bus, or unrelated maintenance topics.
+2. Work strictly in hydraulic, mechanical, winch, crane, deck machinery, HPU, pump, motor, valve, brake, accumulator, filtration, and fluid power scope.
+3. Start technical answers with safety: LOTO, stored hydraulic pressure, accumulators, suspended load/line pull hazards, hot oil, and test area barricading when relevant.
+4. If KB context is provided, use only the parts that directly match the user's question. Ignore unrelated KB chunks even if they are included.
+5. If KB context is weak or absent, say: "No exact KB match found. Answering from hydraulic engineering practice." Then answer from first principles without inventing an OEM manual.
+6. Never claim a specific brand, manual, model, pressure, capacity, or acceptance value unless the user supplied it or it appears in the relevant KB context. Otherwise say "per OEM manual/test procedure" or "typical range only, verify OEM value."
+7. BRAND GATE: If the user did not name a manufacturer or exact model, do not mention any manufacturer, model, manual title, example model, or brand-specific capacity from KB context. Convert useful KB details into a generic engineering answer.
+8. For procedure questions, use this format: Safety controls -> Objective -> Required setup -> Step-by-step procedure -> Acceptance checks -> Stop-test conditions -> Records/DPR.
+9. Keep the response practical and field-ready. Avoid long textbook sections and avoid formulas unless the user specifically asks for calculation.
+`;
+
+const KB_STOP_WORDS = new Set([
+  'the','and','for','with','after','before','how','what','why','when','where','which','who',
+  'can','could','would','should','shall','please','perform','procedure','test','service',
+  'serviced','workshop','make','made','does','into','from','this','that','then','than',
+]);
+
+const KB_DOMAIN_TERMS = new Set([
+  'winch','hoist','luff','luffing','slew','slewing','crane','stall','load','pull','brake',
+  'motor','pump','hydraulic','pressure','flow','case','drain','pilot','counterbalance','cbv',
+  'relief','hpu','drum','rope','gearbox','charge','closed','open','loop','valve','filter',
+]);
+
+const KB_BRAND_TERMS = [
+  'braden','paccar','favco','favelle','liebherr','macgregor','seatrax','nov','amclyde',
+  'rexroth','bosch','danfoss','parker','eaton','vickers','kawasaki','oilgear','hagglunds',
+  'palfinger','mitsubishi','pusnes','aker','cargotec',
+];
+
+function detectUserBrandTerms(question) {
+  const q = String(question || '').toLowerCase();
+  return KB_BRAND_TERMS.filter(brand => q.includes(brand));
+}
+
+function hasExplicitModel(question) {
+  const q = String(question || '').toLowerCase();
+  // Strip ordinal suffixes (1st, 2nd, 3rd, 4th...) first — these read as
+  // digit+letters but are not model numbers.
+  const qNoOrdinals = q.replace(/\b(\d{1,3})(st|nd|rd|th)\b/g, '$1');
+  // Model-style tokens: letters and digits touching directly, or hyphen-joined
+  // (CH150A, WE6, 175A, CH-150A, A4VG, 4WE6). Deliberately does NOT allow a bare
+  // space between a word and a number — "is 10 years", "after 2 hours" etc. are
+  // not model numbers and must stay generic.
+  return /\b([a-z]{1,5}-?\d{1,5}[a-z0-9-]*|\d{1,5}-?[a-z]{1,5}\d?[a-z0-9-]*)\b/.test(qNoOrdinals);
+}
+
+function isGenericQuestion(question) {
+  return detectUserBrandTerms(question).length === 0 && !hasExplicitModel(question);
+}
+
+function sanitizeGenericKbText(text) {
+  return String(text || '')
+    .replace(/\bBraden\b/gi, 'the winch manufacturer')
+    .replace(/\bPACCAR\b/gi, 'the winch manufacturer')
+    .replace(/\bFavelle\s+Favco\b/gi, 'the crane manufacturer')
+    .replace(/\bFavco\b/gi, 'the crane manufacturer')
+    .replace(/\bLiebherr\b/gi, 'the crane manufacturer')
+    .replace(/\bMacGregor\b/gi, 'the deck machinery manufacturer')
+    .replace(/\bSeatrax\b/gi, 'the crane manufacturer')
+    .replace(/\bRexroth\b/gi, 'the component manufacturer')
+    .replace(/\bDanfoss\b/gi, 'the component manufacturer')
+    .replace(/\bParker\b/gi, 'the component manufacturer')
+    .replace(/\bEaton\b/gi, 'the component manufacturer')
+    .replace(/\bVickers\b/gi, 'the component manufacturer')
+    .replace(/\bKawasaki\b/gi, 'the component manufacturer')
+    .replace(/\bOilgear\b/gi, 'the component manufacturer')
+    .replace(/\bCH\s?(?:150A|164A|165A|175A|185A|230A|series)\b/gi, 'the applicable winch model')
+    .replace(/\b(?:150A|164A|165A|175A|185A|230A)\b/g, 'the applicable model')
+    .replace(/\b\d{1,3},?\d{3}\s?(?:lbs|lb|kg|t)\b/gi, 'the rated line pull/load');
+}
+
+function genericKbTitle(chunk) {
+  const category = chunk.category || 'KB';
+  const component = chunk.component_type || 'winch/hydraulic reference';
+  return `${category} — ${component}`;
+}
+
+function tokenizeTechnicalTerms(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !KB_STOP_WORDS.has(w));
+}
+
+function scoreKbChunkRelevance(question, chunk) {
+  const qTerms = tokenizeTechnicalTerms(question);
+  const text = [
+    chunk.doc_name,
+    chunk.category,
+    chunk.brand,
+    chunk.component_type,
+    chunk.tags,
+    chunk.searchable_text,
+  ].join(' ').toLowerCase();
+
+  let exactMatches = 0;
+  let domainMatches = 0;
+  for (const term of qTerms) {
+    if (text.includes(term)) {
+      exactMatches += 1;
+      if (KB_DOMAIN_TERMS.has(term)) domainMatches += 1;
+    }
+  }
+
+  let score = exactMatches + domainMatches * 2;
+  const q = String(question || '').toLowerCase();
+
+  if (q.includes('stall') && text.includes('stall')) score += 6;
+  if (q.includes('winch') && text.includes('winch')) score += 6;
+  if (q.includes('workshop') && /(workshop|test stand|bench|commission|acceptance|load test)/.test(text)) score += 4;
+  if (q.includes('brake') && text.includes('brake')) score += 3;
+
+  if (q.includes('stall') && !text.includes('stall')) score -= 8;
+  if (q.includes('winch') && !text.includes('winch') && !text.includes('hoist')) score -= 6;
+  if (q.includes('workshop') && /(rod straightness|piston seal|cylinder barrel|surface finish)/.test(text)) score -= 10;
+
+  return score;
+}
+
+function filterRelevantKbChunks(question, chunks) {
+  const generic = isGenericQuestion(question);
+  const scored = (chunks || [])
+    .map(chunk => {
+      const brandSpecific = [
+        chunk.doc_name,
+        chunk.brand,
+        chunk.searchable_text,
+      ].join(' ').toLowerCase();
+      const hasBrand = KB_BRAND_TERMS.some(brand => brandSpecific.includes(brand));
+      const baseScore = scoreKbChunkRelevance(question, chunk);
+      return {
+        ...chunk,
+        brandSpecific: hasBrand,
+        relevanceScore: generic && hasBrand ? Math.max(0, baseScore - 4) : baseScore,
+      };
+    })
+    .sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  const q = String(question || '').toLowerCase();
+  const threshold = q.includes('stall') || q.includes('workshop') ? 8 : 5;
+  const relevant = scored.filter(chunk => chunk.relevanceScore >= threshold);
+
+  return {
+    chunks: relevant.slice(0, 4),
+    found: relevant.length > 0,
+    bestScore: scored[0]?.relevanceScore || 0,
+    generic,
+  };
+}
+
 function kbCacheGet(key) {
   const entry = KB_CACHE.get(key);
   if (!entry) return null;
@@ -131,14 +286,26 @@ setInterval(async () => {
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
 // ══════════════════════════════════════════════════════════════════════════
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "No token provided" });
+
+  // Path 1: backend's own JWT (web platform — unchanged behavior)
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
+    return next();
   } catch {
-    res.status(401).json({ error: "Invalid token" });
+    // fall through to Path 2
+  }
+
+  // Path 2: Supabase access token (mobile app — Supabase Auth session)
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) throw error || new Error("No Supabase user");
+    req.user = { id: data.user.id, email: data.user.email, source: "supabase" };
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
   }
 };
 
@@ -450,8 +617,13 @@ app.post("/api/kb/upload", authMiddleware, upload.single("file"), async (req, re
     const text = pdfData.text.replace(/\s+/g, " ").trim();
     if (text.length < 100) return res.status(400).json({ error: "PDF appears empty or unreadable" });
     const docName = req.file.originalname.replace(".pdf", "");
+    // kb_documents.uploaded_by has a FK to public.users.id (web-platform custom auth table).
+    // Supabase-Auth-authenticated requests (mobile) carry an auth.users UUID instead, which
+    // does not exist in public.users and would violate the FK. Only attribute uploads made
+    // via the custom JWT path; leave it NULL for Supabase Auth sessions.
+    const uploadedBy = req.user.source === "supabase" ? null : req.user.id;
     const { data: doc, error: docErr } = await supabase.from("kb_documents")
-      .insert({ name: docName, category: category || "General", description: description || "", uploaded_by: req.user.id, page_count: pdfData.numpages, char_count: text.length, status: "processing" })
+      .insert({ name: docName, category: category || "General", description: description || "", uploaded_by: uploadedBy, page_count: pdfData.numpages, char_count: text.length, status: "processing" })
       .select("id").single();
     if (docErr) throw docErr;
     res.json({ success: true, docId: doc.id, message: "Document received. Processing in background." });
@@ -703,28 +875,43 @@ async function getKbContextForQuestion(question, topK) {
 
 app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, async (req, res) => {
   try {
-    const { question, history = [], system } = req.body;
+    const { question, history = [], system, answerPolicy = {} } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
 
     const q_lower = question.toLowerCase();
     console.log(`Query: "${question.slice(0,70)}"`);
 
     // ── FETCH RELEVANT KB CONTEXT ─────────────────────────────────────────
-    const { chunks, found } = await getKbContextForQuestion(question, 5);
+    const kbResult = await getKbContextForQuestion(question, 5);
+    const relevance = filterRelevantKbChunks(question, kbResult.chunks || []);
+    const chunks = relevance.chunks;
+    const found = relevance.found;
+    const genericQuestion = relevance.generic;
 
     let kbContext = "";
 
     if (found && chunks.length > 0) {
-      kbContext = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n";
+      kbContext = "\n\n--- RELEVANT KNOWLEDGE BASE CONTEXT ---\n";
+      if (genericQuestion) {
+        kbContext += "\nGENERIC QUESTION BRAND GATE ACTIVE:\n";
+        kbContext += "- User did not specify manufacturer/model.\n";
+        kbContext += "- Do not mention any brand, model, manual title, example model, or brand-specific load/pressure value from the KB.\n";
+        kbContext += "- Use the KB only to shape a brand-neutral engineering procedure.\n";
+        kbContext += "- For exact values, tell user to use the applicable OEM test sheet/manual.\n";
+      }
       chunks.forEach(c => {
-        const text = (c.searchable_text || '').substring(0, 1800);
-        kbContext += `\n[${c.category} — ${c.doc_name}]${c.brand ? ' | Brand: '+c.brand : ''}\n${text}\n`;
+        const rawText = (c.searchable_text || '').substring(0, 1800);
+        const text = genericQuestion ? sanitizeGenericKbText(rawText) : rawText;
+        const sourceTitle = genericQuestion ? genericKbTitle(c) : `${c.category} — ${c.doc_name}`;
+        const brand = genericQuestion ? '' : (c.brand ? ' | Brand: '+c.brand : '');
+        kbContext += `\n[${sourceTitle}]${brand} | Relevance: ${c.relevanceScore}\n${text}\n`;
       });
 
       // Determine answer type and give the AI the right instruction
       const isFaultQ = /\b(why|fault|not working|chattering|slow|leak|noise|hot|overheat|no pressure|low pressure|stuck|not build|not shift|vibrat|alarm|trip|fail|drift|surge|hunt|cavitat)\b/.test(q_lower);
       const isCraneCircuit = /\b(hoist|luffing|slew|slewing|crane circuit|winch circuit)\b/.test(q_lower) && /\b(explain|circuit|how|describe)\b/.test(q_lower);
       const isDatasheet = /\b(datasheet|data sheet|specification|technical data|performance curve|displacement|speed range|torque|pressure rating)\b/.test(q_lower);
+      const isProcedureQ = /\b(how|procedure|perform|test|commission|workshop|service|stall|load test|acceptance)\b/.test(q_lower);
 
       if (isFaultQ) {
         kbContext += `--- END KB CONTEXT ---
@@ -756,6 +943,21 @@ Present the key technical specifications from the KB context clearly:
 - Key application notes
 If the user wants to view full drawings, direct them to the Knowledge Base:
 "→ View the full manual in the HydroMind Knowledge Base"`;
+      } else if (isProcedureQ) {
+        kbContext += `--- END KB CONTEXT ---
+
+PROCEDURE RESPONSE:
+Answer only the requested procedure. Do not add unrelated service checks.
+If the user did not provide maker/model, keep the answer manufacturer-neutral. Do not mention Braden, CH series, or any other specific maker/model/manual from KB context.
+Use this structure:
+1. Safety controls
+2. Objective of the test
+3. Required workshop setup and instruments
+4. Step-by-step hydraulic/mechanical procedure
+5. Acceptance checks
+6. Stop-test conditions
+7. Records/DPR entries
+If exact OEM values are not present, state that values must be taken from the OEM test sheet/manual.`;
       } else {
         kbContext += `--- END KB CONTEXT ---
 
@@ -765,10 +967,17 @@ If full document pages are needed, mention: "→ Full manual available in the Hy
       }
     } else {
       // No KB match — use pure engineering knowledge
-      kbContext = `\n\n--- NO KB MATCH — USE ENGINEERING KNOWLEDGE ---\nAnswer from first principles using your deep hydraulic/crane expertise. Be specific about OEM models and values.`;
+      kbContext = `\n\n--- NO EXACT KB MATCH ---\nNo exact KB match found. Answering from hydraulic engineering practice.
+Do not invent OEM-specific values, model names, manual names, or brand details. If exact values are required, tell the user to verify the OEM manual/test sheet.`;
     }
 
-    const enhancedSystem = (system || "") + kbContext;
+    const policyContext = `\n\n--- CLIENT ANSWER POLICY ---\nStrict relevance: ${answerPolicy.strictRelevance !== false}\nAllow engineering fallback: ${answerPolicy.allowEngineeringFallback !== false}\nAnswer domain: ${answerPolicy.domain || 'marine_offshore_hydraulics'}\n`;
+    const enhancedSystem = [
+      HYDROMIND_ADVISOR_SYSTEM,
+      system || "",
+      policyContext,
+      kbContext,
+    ].join("\n");
     const messages = [...history, { role: "user", content: question }];
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -794,7 +1003,15 @@ If full document pages are needed, mention: "→ Full manual available in the Hy
 
     // Always return empty schematics — AI Advisor is text-only
     // Full manuals/schematics are available in the Knowledge Base
-    res.json({ ...data, kbUsed: found, kbChunkCount: chunks.length, schematics: [], schematicMode: 'text' });
+    res.json({
+      ...data,
+      kbUsed: found,
+      kbChunkCount: chunks.length,
+      kbRelevanceScore: relevance.bestScore,
+      kbWeakMatch: !found && (kbResult.chunks || []).length > 0,
+      schematics: [],
+      schematicMode: 'text'
+    });
   } catch (e) {
     console.error("kb/chat error:", e.message);
     res.status(500).json({ error: e.message });
@@ -996,5 +1213,14 @@ async function triggerKbSync(docId, docName, record) {
 }
 // End KB Upload Webhook
 
-app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`HydroMind AI v5.1 running on port ${PORT}`));
+}
 
+module.exports = {
+  detectUserBrandTerms,
+  filterRelevantKbChunks,
+  isGenericQuestion,
+  sanitizeGenericKbText,
+  scoreKbChunkRelevance,
+};
