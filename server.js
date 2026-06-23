@@ -348,16 +348,19 @@ const softIdentify = async (req, res, next) => {
 
 const FREE_DAILY_QUERY_LIMIT = 10;
 
-// Checks + atomically increments today's usage row for this identity.
-// Pro/Admin users (req.user already set by a prior authMiddleware-style check)
-// are exempt entirely — this only gates Free-tier and anonymous traffic.
-const enforceDailyQueryLimit = async (req, res, next) => {
+// Read-only check — does NOT increment. Blocks the request with 429 if
+// today's count is already at the limit; otherwise attaches the current
+// (pre-increment) count to req and proceeds. The actual increment only
+// happens on a successful response via incrementDailyQueryUsage(), so a
+// failed/errored Claude call never costs the user one of their daily queries.
+// Pro/Enterprise/Admin users are exempt entirely.
+const checkDailyQueryLimit = async (req, res, next) => {
   try {
     if (req.user && (req.user.isAdmin || req.user.plan === "Pro" || req.user.plan === "Enterprise" || req.user.plan === "Admin")) {
       return next();
     }
     const today = new Date().toISOString().slice(0, 10); // UTC date, YYYY-MM-DD
-    const { id, type } = req.identity;
+    const { id } = req.identity;
 
     const { data: existing, error: selErr } = await supabase
       .from("query_usage")
@@ -377,23 +380,42 @@ const enforceDailyQueryLimit = async (req, res, next) => {
       });
     }
 
+    req._dailyCurrentCount = currentCount; // pre-increment count, used by incrementDailyQueryUsage
+    req.queriesRemainingToday = FREE_DAILY_QUERY_LIMIT - currentCount;
+    next();
+  } catch (err) {
+    console.error("checkDailyQueryLimit error:", err.message);
+    // Fail open: a usage-tracking outage shouldn't take down the whole advisor.
+    next();
+  }
+};
+
+// Call only after a successful response is ready to send. Atomically bumps
+// today's row for this identity by 1. Best-effort: logs on failure but never
+// throws, since a tracking-table hiccup shouldn't break an answer the user
+// already received.
+const incrementDailyQueryUsage = async (req) => {
+  try {
+    if (req.user && (req.user.isAdmin || req.user.plan === "Pro" || req.user.plan === "Enterprise" || req.user.plan === "Admin")) {
+      return; // exempt, nothing to track
+    }
+    if (typeof req._dailyCurrentCount !== "number" || !req.identity) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const { id, type } = req.identity;
+    const newCount = req._dailyCurrentCount + 1;
     const { error: upsertErr } = await supabase
       .from("query_usage")
       .upsert({
         identifier: id,
         identifier_type: type,
         usage_date: today,
-        query_count: currentCount + 1,
+        query_count: newCount,
         updated_at: new Date().toISOString()
       }, { onConflict: "identifier,usage_date" });
     if (upsertErr) throw upsertErr;
-
-    req.queriesRemainingToday = FREE_DAILY_QUERY_LIMIT - (currentCount + 1);
-    next();
+    req.queriesRemainingToday = FREE_DAILY_QUERY_LIMIT - newCount;
   } catch (err) {
-    console.error("enforceDailyQueryLimit error:", err.message);
-    // Fail open: a usage-tracking outage shouldn't take down the whole advisor.
-    next();
+    console.error("incrementDailyQueryUsage error:", err.message);
   }
 };
 
@@ -994,7 +1016,7 @@ async function getKbContextForQuestion(question, topK, docId) {
   return result;
 }
 
-app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, softIdentify, enforceDailyQueryLimit, async (req, res) => {
+app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, softIdentify, checkDailyQueryLimit, async (req, res) => {
   try {
     const { question, history = [], system, answerPolicy = {}, docId } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
@@ -1127,6 +1149,9 @@ Do not invent OEM-specific values, model names, manual names, or brand details. 
       console.error("Anthropic error:", JSON.stringify(data));
       return res.status(response.status).json({ error: data });
     }
+
+    // Success — now safe to count this as a used query for today.
+    await incrementDailyQueryUsage(req);
 
     // Always return empty schematics — AI Advisor is text-only
     // Full manuals/schematics are available in the Knowledge Base
