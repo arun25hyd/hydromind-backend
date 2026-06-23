@@ -310,6 +310,94 @@ const authMiddleware = async (req, res, next) => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════
+// SOFT IDENTITY — identifies the caller for rate-limiting without requiring
+// login. Logged-in users are tracked by account id (stable, accurate).
+// Anonymous users are tracked by a client-supplied browser fingerprint hash
+// (X-Client-Fingerprint header) — best-effort, not cryptographically robust,
+// but far better than IP alone on shared office/vessel networks.
+// ══════════════════════════════════════════════════════════════════════════
+const softIdentify = async (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.identity = { id: decoded.id || decoded.sub, type: "user" };
+      // isPremium is embedded in the JWT at sign-time (see /api/auth/login, /api/auth/register)
+      req.user = { id: decoded.id, email: decoded.email, isPremium: !!decoded.isPremium, plan: decoded.isPremium ? "Pro" : "Free" };
+      return next();
+    } catch { /* fall through to Supabase token check */ }
+    try {
+      const { data, error } = await supabase.auth.getUser(token);
+      if (!error && data?.user) {
+        req.identity = { id: data.user.id, type: "user" };
+        req.user = { id: data.user.id, email: data.user.email, plan: "Free" }; // Supabase-session users default Free unless looked up separately
+        return next();
+      }
+    } catch { /* fall through to anonymous */ }
+  }
+  const fp = req.headers["x-client-fingerprint"];
+  if (fp && typeof fp === "string" && fp.length >= 8 && fp.length <= 128) {
+    req.identity = { id: fp, type: "fingerprint" };
+  } else {
+    // No usable identity at all — fail closed to a shared bucket rather than
+    // letting unidentifiable traffic bypass the limit entirely.
+    req.identity = { id: "unknown-no-fingerprint", type: "fingerprint" };
+  }
+  next();
+};
+
+const FREE_DAILY_QUERY_LIMIT = 10;
+
+// Checks + atomically increments today's usage row for this identity.
+// Pro/Admin users (req.user already set by a prior authMiddleware-style check)
+// are exempt entirely — this only gates Free-tier and anonymous traffic.
+const enforceDailyQueryLimit = async (req, res, next) => {
+  try {
+    if (req.user && (req.user.isAdmin || req.user.plan === "Pro" || req.user.plan === "Enterprise" || req.user.plan === "Admin")) {
+      return next();
+    }
+    const today = new Date().toISOString().slice(0, 10); // UTC date, YYYY-MM-DD
+    const { id, type } = req.identity;
+
+    const { data: existing, error: selErr } = await supabase
+      .from("query_usage")
+      .select("query_count")
+      .eq("identifier", id)
+      .eq("usage_date", today)
+      .maybeSingle();
+    if (selErr) throw selErr;
+
+    const currentCount = existing?.query_count || 0;
+    if (currentCount >= FREE_DAILY_QUERY_LIMIT) {
+      return res.status(429).json({
+        error: "Daily free query limit reached",
+        limit: FREE_DAILY_QUERY_LIMIT,
+        resetsAt: "midnight UTC",
+        kbUsed: false
+      });
+    }
+
+    const { error: upsertErr } = await supabase
+      .from("query_usage")
+      .upsert({
+        identifier: id,
+        identifier_type: type,
+        usage_date: today,
+        query_count: currentCount + 1,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "identifier,usage_date" });
+    if (upsertErr) throw upsertErr;
+
+    req.queriesRemainingToday = FREE_DAILY_QUERY_LIMIT - (currentCount + 1);
+    next();
+  } catch (err) {
+    console.error("enforceDailyQueryLimit error:", err.message);
+    // Fail open: a usage-tracking outage shouldn't take down the whole advisor.
+    next();
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════
 // AUTH ROUTES
 // ══════════════════════════════════════════════════════════════════════════
 app.post("/api/auth/register", authLimiter, validateAuthRequest, async (req, res) => {
@@ -906,7 +994,7 @@ async function getKbContextForQuestion(question, topK, docId) {
   return result;
 }
 
-app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, async (req, res) => {
+app.post("/api/kb/chat", chatLimiter, validateKBChatRequest, softIdentify, enforceDailyQueryLimit, async (req, res) => {
   try {
     const { question, history = [], system, answerPolicy = {}, docId } = req.body;
     if (!question) return res.status(400).json({ error: "question required" });
@@ -1049,7 +1137,10 @@ Do not invent OEM-specific values, model names, manual names, or brand details. 
       kbRelevanceScore: relevance.bestScore,
       kbWeakMatch: !found && (kbResult.chunks || []).length > 0,
       schematics: [],
-      schematicMode: 'text'
+      schematicMode: 'text',
+      queriesRemainingToday: (req.user && (req.user.isAdmin || req.user.plan === "Pro" || req.user.plan === "Enterprise" || req.user.plan === "Admin"))
+        ? null  // null = unlimited, frontend renders as infinity symbol
+        : (typeof req.queriesRemainingToday === "number" ? req.queriesRemainingToday : null)
     });
   } catch (e) {
     console.error("kb/chat error:", e.message);
