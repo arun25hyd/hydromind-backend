@@ -1237,33 +1237,43 @@ app.post("/api/kb/circuit-analyze", generalLimiter, upload.single("schematic"), 
       });
     }
 
+    // Pass kbRefs in the user message (not in system schema) to avoid broken template interpolation
+    const kbRefsNote = kbRefs.length > 0
+      ? '\n\nKB document IDs matched for this query: ' + JSON.stringify(kbRefs) + '. Include these in the "kbRefs" array of your JSON response.'
+      : '\n\nNo KB documents matched. Return [] for "kbRefs".';
+    if (userContentParts.length > 0) {
+      const last = userContentParts[userContentParts.length - 1];
+      if (last.type === 'text') last.text += kbRefsNote;
+    }
+
     const systemPrompt = `You are HydroMind AI, a senior marine and offshore hydraulic systems engineer specialising in crane and deck machinery hydraulics.
 
-Your task: analyse the hydraulic circuit and explain clearly how it works.
+Your task: analyse the hydraulic circuit and explain clearly and precisely how it works.
 
-Return ONLY a single valid JSON object — no markdown fences, no preamble, no trailing text:
+Return ONLY a single valid JSON object. No markdown fences, no preamble, no trailing text — your entire response must be parseable JSON:
 {
   "circuitName": "Short descriptive name for this circuit",
-  "explanation": "Plain-language paragraph: what this circuit does, why it exists, key design intent",
+  "explanation": "Plain-language paragraph explaining what this circuit does, why it exists, and the key design intent",
   "pressurePath": [
-    { "step": 1, "component": "Component name", "description": "What happens here and why", "typicalPressure": "e.g. 250 bar or per OEM manual" }
+    { "step": 1, "component": "Component name", "description": "What happens here and why it matters", "typicalPressure": "e.g. 250 bar or per OEM manual" }
   ],
   "normalValues": [
-    { "point": "Test point identifier", "range": "e.g. 40-60 bar", "meaning": "What this indicates about circuit health" }
+    { "point": "Test point label", "range": "e.g. 40-60 bar", "meaning": "What this pressure indicates about circuit health" }
   ],
   "failureModes": [
-    { "symptom": "Observable fault symptom", "cause": "Root cause in the circuit", "diagnosticTest": "Field test to confirm this fault" }
+    { "symptom": "Observable fault symptom", "cause": "Root cause in the circuit", "diagnosticTest": "Step-by-step field test to confirm this fault" }
   ],
-  "safetyNotes": "Critical safety: LOTO, accumulators, suspended loads, hot oil",
-  "kbRefs": ${JSON.stringify(kbRefs)}
+  "safetyNotes": "Critical safety requirements for this circuit: LOTO, accumulator discharge, suspended load hazards, hot oil",
+  "kbRefs": []
 }
 
-RULES:
-- If schematic image provided: identify ACTUAL components visible, trace REAL flow paths. If unclear, say so.
-- If no image: answer from engineering knowledge and KB context only.
-- Never invent OEM pressure values unless in KB context or user-provided. Use "per OEM manual" or "typical — verify with OEM".
-- pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries.
-- Be concise and field-practical.`;
+STRICT RULES:
+1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description.
+2. If no image: answer from engineering knowledge and KB context only.
+3. Never invent specific OEM pressure values unless they appear in KB context or the user provided them. Use "per OEM manual" or "typical — verify with OEM".
+4. pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries.
+5. Be concise and field-practical — no textbook padding.
+6. Copy the kbRefs array provided in the user message into your response.`;
 
     const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -1274,7 +1284,7 @@ RULES:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-5",
-        max_tokens: 2000,
+        max_tokens: 3000,
         system: systemPrompt,
         messages: [{ role: "user", content: userContentParts }]
       })
@@ -1286,12 +1296,17 @@ RULES:
       return res.status(502).json({ error: "AI service error — please retry" });
     }
 
-    const rawText = (claudeData.content || [])
+    let rawText = (claudeData.content || [])
       .filter(b => b.type === "text")
       .map(b => b.text)
       .join("")
-      .replace(/```json|```/g, "")
       .trim();
+    // Strip any accidental markdown fences
+    rawText = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    // If preamble before JSON, extract from first { to last }
+    const jsonStart = rawText.indexOf("{");
+    const jsonEnd   = rawText.lastIndexOf("}");
+    if (jsonStart > 0 && jsonEnd > jsonStart) rawText = rawText.slice(jsonStart, jsonEnd + 1);
 
     let parsed;
     try {
