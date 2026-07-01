@@ -1173,6 +1173,153 @@ Do not invent OEM-specific values, model names, manual names, or brand details. 
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// CIRCUIT ANALYZE — Real AI explanation of uploaded schematic image
+// POST /api/kb/circuit-analyze
+// Body (multipart/form-data):
+//   schematic   — image file (PNG/JPG/WEBP) — optional
+//   equipment   — e.g. "Crane Winch"
+//   oem         — e.g. "Liebherr LR 1600"
+//   pumpType    — e.g. "LS variable displacement pump"
+//   pilotConfig — e.g. "Load-sensing derived"
+//   issue       — e.g. "Load drift during hold" (optional)
+// ══════════════════════════════════════════════════════════════════════════
+app.post("/api/kb/circuit-analyze", generalLimiter, upload.single("schematic"), async (req, res) => {
+  try {
+    const { equipment, oem, pumpType, pilotConfig, issue } = req.body;
+    if (!equipment || !pumpType || !pilotConfig) {
+      return res.status(400).json({ error: "equipment, pumpType, and pilotConfig are required" });
+    }
+
+    const circuitContext = [
+      `Equipment type: ${equipment}`,
+      `OEM / Model: ${oem || "Not specified"}`,
+      `Pump system: ${pumpType}`,
+      `Pilot circuit configuration: ${pilotConfig}`,
+      issue ? `Known issue / symptom: ${issue}` : null,
+    ].filter(Boolean).join("\n");
+
+    // Pull relevant KB chunks
+    const kbQuestion = `${equipment} ${oem || ""} ${pumpType} hydraulic circuit pilot system`;
+    const kbResult = await getKbContextForQuestion(kbQuestion, 4, null);
+    let kbContext = "";
+    const kbRefs = [];
+    if (kbResult.found && kbResult.chunks.length > 0) {
+      kbResult.chunks.forEach(c => {
+        kbContext += `\n[${c.category} — ${c.doc_name}] KB-ID: ${c.kb_id}\n${(c.searchable_text || "").substring(0, 1200)}\n`;
+        if (c.kb_id) kbRefs.push(c.kb_id);
+      });
+    }
+
+    // Build Claude message parts
+    const userContentParts = [];
+    if (req.file) {
+      const allowed = ["image/png","image/jpeg","image/jpg","image/webp"];
+      if (!allowed.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: "Schematic must be PNG, JPG, or WEBP. Convert PDF pages to image first." });
+      }
+      if (req.file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "Schematic image must be under 5 MB" });
+      }
+      const mediaType = req.file.mimetype === "image/jpg" ? "image/jpeg" : req.file.mimetype;
+      userContentParts.push({
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: req.file.buffer.toString("base64") }
+      });
+      userContentParts.push({
+        type: "text",
+        text: `I have uploaded a hydraulic schematic diagram above.\n\nCircuit context:\n${circuitContext}\n\n${kbContext ? "KB Reference context:\n" + kbContext : ""}\n\nPlease analyse the schematic and explain how this circuit works.`
+      });
+    } else {
+      userContentParts.push({
+        type: "text",
+        text: `No schematic image was uploaded. Based on the circuit details below, explain how this hydraulic circuit works.\n\nCircuit context:\n${circuitContext}\n\n${kbContext ? "KB Reference context:\n" + kbContext : ""}`
+      });
+    }
+
+    const systemPrompt = `You are HydroMind AI, a senior marine and offshore hydraulic systems engineer specialising in crane and deck machinery hydraulics.
+
+Your task: analyse the hydraulic circuit and explain clearly how it works.
+
+Return ONLY a single valid JSON object — no markdown fences, no preamble, no trailing text:
+{
+  "circuitName": "Short descriptive name for this circuit",
+  "explanation": "Plain-language paragraph: what this circuit does, why it exists, key design intent",
+  "pressurePath": [
+    { "step": 1, "component": "Component name", "description": "What happens here and why", "typicalPressure": "e.g. 250 bar or per OEM manual" }
+  ],
+  "normalValues": [
+    { "point": "Test point identifier", "range": "e.g. 40-60 bar", "meaning": "What this indicates about circuit health" }
+  ],
+  "failureModes": [
+    { "symptom": "Observable fault symptom", "cause": "Root cause in the circuit", "diagnosticTest": "Field test to confirm this fault" }
+  ],
+  "safetyNotes": "Critical safety: LOTO, accumulators, suspended loads, hot oil",
+  "kbRefs": ${JSON.stringify(kbRefs)}
+}
+
+RULES:
+- If schematic image provided: identify ACTUAL components visible, trace REAL flow paths. If unclear, say so.
+- If no image: answer from engineering knowledge and KB context only.
+- Never invent OEM pressure values unless in KB context or user-provided. Use "per OEM manual" or "typical — verify with OEM".
+- pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries.
+- Be concise and field-practical.`;
+
+    const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userContentParts }]
+      })
+    });
+
+    const claudeData = await claudeResp.json();
+    if (!claudeResp.ok) {
+      console.error("[circuit-analyze] Claude error:", JSON.stringify(claudeData));
+      return res.status(502).json({ error: "AI service error — please retry" });
+    }
+
+    const rawText = (claudeData.content || [])
+      .filter(b => b.type === "text")
+      .map(b => b.text)
+      .join("")
+      .replace(/```json|```/g, "")
+      .trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error("[circuit-analyze] JSON parse error:", parseErr.message, rawText.substring(0, 300));
+      return res.status(502).json({ error: "AI returned unparseable response — please retry", raw: rawText.substring(0, 300) });
+    }
+
+    return res.json({
+      ok:            true,
+      circuitName:   parsed.circuitName   || "Hydraulic Circuit",
+      explanation:   parsed.explanation   || "",
+      pressurePath:  parsed.pressurePath  || [],
+      normalValues:  parsed.normalValues  || [],
+      failureModes:  parsed.failureModes  || [],
+      safetyNotes:   parsed.safetyNotes   || "",
+      kbRefs:        parsed.kbRefs        || kbRefs,
+      imageProvided: !!req.file
+    });
+
+  } catch (e) {
+    console.error("[circuit-analyze] error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 // ── FEEDBACK ENDPOINT ─────────────────────────────────────────────────────
 app.post('/api/feedback', async (req, res) => {
   try {
