@@ -1336,43 +1336,52 @@ app.post("/api/kb/circuit-analyze", generalLimiter, upload.single("schematic"), 
 
 Your task: analyse the hydraulic circuit and explain clearly and precisely how it works.
 
-WHEN A SCHEMATIC IMAGE IS PROVIDED, your primary job is symbol-level reading of the ENTIRE diagram — every component type, not just pumps. Do not rely on the user's text fields for this. Specifically:
+IMPORTANT: A real crane/deck-machinery schematic typically shows MULTIPLE distinct functions combined on one page — e.g. main hoist, auxiliary hoist, luffing/boom, slewing, mooring, steering — sharing common pumps and a manifold. You MUST identify every distinct function visible and give each one its own complete walkthrough. Do not treat the page as if it's a single circuit and only cover one function (e.g. only the boom) while ignoring the others that are equally present in the image.
+
+WHEN A SCHEMATIC IMAGE IS PROVIDED, your primary job is symbol-level reading of the ENTIRE diagram — every component type, across every function shown. Do not rely on the user's text fields for this. Specifically:
 - Identify EVERY component visible by its ISO 1219 symbol: pumps, directional control valves (and how many positions/ways), counterbalance valves, pressure relief/reducing valves, check valves (including pilot-operated), flow control valves, cylinders (single/double-acting, with or without counterbalance), motors, accumulators, filters, manifolds, and anything else drawn in the circuit.
 - For pumps specifically: determine fixed vs. variable displacement from the symbol (variable shows a diagonal arrow through the circle), and whether load-sensing (LS), pressure-compensated, or manual, by tracing pilot/compensator line routing — not by assuming from user text.
 - For valves: identify type, number of positions/ports, and actuation method (pilot-operated, solenoid, manual lever, spring-return) from the symbol.
 - Classify every visible line by function — main pressure/working line, return/tank line, pilot/signal line, drain line — based on standard line-weight/style conventions and where each line actually connects.
+- Identify which distinct machine FUNCTIONS are present (e.g. Main Hoist, Auxiliary Hoist, Luffing/Boom, Slewing) by tracing which directional control valve and actuator group belongs to which function — a real schematic usually labels these, or they're identifiable by which winch/cylinder/motor each DCV feeds.
 - If the user's text fields say the pump type or pilot configuration is unknown/not specified, you MUST determine these from the image rather than leaving them blank.
 - If a component or line is genuinely ambiguous in the image (poor resolution, obscured, cut off), say so explicitly rather than guessing silently.
 
 Return ONLY a single valid JSON object. No markdown fences, no preamble, no trailing text — your entire response must be parseable JSON:
 {
-  "circuitName": "Short descriptive name for this circuit",
-  "explanation": "Plain-language paragraph explaining what this circuit does, why it exists, and the key design intent",
+  "circuitName": "Short descriptive name for this overall schematic/circuit page",
+  "explanation": "Plain-language paragraph explaining what this schematic covers overall — which functions are present, shared pump/supply architecture, and overall design intent",
   "componentIdentification": [
-    { "label": "e.g. P1, DCV1, CBV-A, Cyl1", "componentType": "e.g. Pump, Directional Control Valve, Counterbalance Valve, Pressure Relief Valve, Check Valve, Cylinder, Motor, Accumulator, Filter", "details": "Key identifying details from the symbol — e.g. for a pump: 'Variable displacement, LS control'; for a DCV: '4/3-way, spring-centered, pilot-operated'; for a cylinder: 'Double-acting with integral counterbalance valve'", "identifiedFrom": "schematic symbol | user input | not specified — assumed typical" }
+    { "label": "e.g. P1, DCV1, CBV-A, Cyl1", "componentType": "e.g. Pump, Directional Control Valve, Counterbalance Valve, Pressure Relief Valve, Check Valve, Cylinder, Motor, Accumulator, Filter", "function": "Which function this component belongs to, e.g. 'Main Hoist', 'Auxiliary Hoist', 'Luffing', 'Shared/Supply' if it serves all functions", "details": "Key identifying details from the symbol", "identifiedFrom": "schematic symbol | user input | not specified — assumed typical" }
   ],
   "lineIdentification": [
     { "lineType": "Pressure/Working | Return | Pilot/Signal | Drain", "path": "e.g. Pump P1 outlet to DCV1 port P", "notes": "Anything notable about this line's role" }
   ],
-  "pressurePath": [
-    { "step": 1, "component": "Component name", "description": "What happens here and why it matters", "typicalPressure": "e.g. 250 bar or per OEM manual" }
-  ],
-  "normalValues": [
-    { "point": "Test point label", "range": "e.g. 40-60 bar", "meaning": "What this pressure indicates about circuit health" }
-  ],
-  "failureModes": [
-    { "symptom": "Observable fault symptom", "cause": "Root cause in the circuit", "diagnosticTest": "Step-by-step field test to confirm this fault" }
+  "circuitFunctions": [
+    {
+      "functionName": "e.g. Main Hoist, Auxiliary Hoist, Luffing/Boom, Slewing — one entry per distinct function actually visible in the schematic",
+      "summary": "1-2 sentence summary of what this specific function does and its key components",
+      "pressurePath": [
+        { "step": 1, "component": "Component name", "description": "What happens here and why it matters", "typicalPressure": "e.g. 250 bar or per OEM manual" }
+      ],
+      "normalValues": [
+        { "point": "Test point label", "range": "e.g. 40-60 bar", "meaning": "What this pressure indicates about circuit health" }
+      ],
+      "failureModes": [
+        { "symptom": "Observable fault symptom", "cause": "Root cause in the circuit", "diagnosticTest": "Step-by-step field test to confirm this fault" }
+      ]
+    }
   ],
   "safetyNotes": "Critical safety requirements for this circuit: LOTO, accumulator discharge, suspended load hazards, hot oil",
   "kbRefs": []
 }
 
 STRICT RULES:
-1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description. This applies even more strongly to componentIdentification and lineIdentification — these must reflect the actual image, not generic assumptions, and must cover ALL component types present, not just pumps.
-2. If no image: answer from engineering knowledge and KB context only, and componentIdentification/lineIdentification should note "based on user-reported configuration, no schematic provided".
+1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description. This applies even more strongly to componentIdentification and lineIdentification — these must reflect the actual image, not generic assumptions, and must cover ALL component types present across ALL functions, not just one.
+2. If no image: answer from engineering knowledge and KB context only for the single function the user described in their text fields (equipment/pumpType/pilotConfig), and componentIdentification/lineIdentification should note "based on user-reported configuration, no schematic provided".
 3. Never invent specific OEM pressure values unless they appear in KB context or the user provided them. Use "per OEM manual" or "typical — verify with OEM".
-4. pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries. componentIdentification: one entry per distinct component visible in the schematic — pumps, valves, cylinders, motors, accumulators, filters, everything. lineIdentification: cover the main functional lines relevant to explaining the circuit, not every single line segment.
-5. Be concise and field-practical — no textbook padding.
+4. circuitFunctions: ONE entry per distinct function actually visible in the schematic (could be 1 if it's genuinely a single-function circuit, or 4-6 for a full combined crane page — do not force a fixed number, match what's actually in the image). Each function's pressurePath: 3-6 steps. normalValues: 2-5 entries. failureModes: 2-4 entries. componentIdentification: one entry per distinct component visible, tagged with which function it belongs to. lineIdentification: cover the main functional lines relevant to explaining the circuit(s), not every single line segment.
+5. Be concise and field-practical — no textbook padding. Concise per-function does not mean skipping functions — cover every function present, briefly and precisely, rather than one function in exhaustive detail while ignoring the rest.
 6. Copy the kbRefs array provided in the user message into your response.`;
 
     const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1434,9 +1443,12 @@ STRICT RULES:
       pumpAnalysis:  parsed.componentIdentification || [],
       componentIdentification: parsed.componentIdentification || [],
       lineIdentification: parsed.lineIdentification || [],
-      pressurePath:  parsed.pressurePath  || [],
-      normalValues:  parsed.normalValues  || [],
-      failureModes:  parsed.failureModes  || [],
+      circuitFunctions: parsed.circuitFunctions || [],
+      // Backward-compat flat fields: flatten all functions' arrays together
+      // in case anything still reads the old flat shape
+      pressurePath:  (parsed.circuitFunctions || []).flatMap(f => f.pressurePath || []),
+      normalValues:  (parsed.circuitFunctions || []).flatMap(f => f.normalValues || []),
+      failureModes:  (parsed.circuitFunctions || []).flatMap(f => f.failureModes || []),
       safetyNotes:   parsed.safetyNotes   || "",
       kbRefs:        parsed.kbRefs        || kbRefs,
       imageProvided: !!req.file
