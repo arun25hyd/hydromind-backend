@@ -1262,20 +1262,31 @@ Do not invent OEM-specific values, model names, manual names, or brand details. 
 app.post("/api/kb/circuit-analyze", generalLimiter, upload.single("schematic"), async (req, res) => {
   try {
     const { equipment, oem, pumpType, pilotConfig, issue } = req.body;
-    if (!equipment || !pumpType || !pilotConfig) {
-      return res.status(400).json({ error: "equipment, pumpType, and pilotConfig are required" });
+    if (!equipment) {
+      return res.status(400).json({ error: "Equipment type is required" });
+    }
+    if (!req.file && (!pumpType || !pilotConfig)) {
+      return res.status(400).json({ error: "Without a schematic image, pump system and pilot configuration are required so the AI has something to analyse." });
     }
 
-    const circuitContext = [
-      `Equipment type: ${equipment}`,
-      `OEM / Model: ${oem || "Not specified"}`,
-      `Pump system: ${pumpType}`,
-      `Pilot circuit configuration: ${pilotConfig}`,
-      issue ? `Known issue / symptom: ${issue}` : null,
-    ].filter(Boolean).join("\n");
+    const knownFields = [];
+    const pumpTypeKnown = pumpType && !/^(no|none|n\/a|don'?t know|unknown|not sure)$/i.test(pumpType.trim());
+    const pilotKnown = pilotConfig && !/^(no|none|n\/a|don'?t know|unknown|not sure)$/i.test(pilotConfig.trim());
 
-    // Pull relevant KB chunks
-    const kbQuestion = `${equipment} ${oem || ""} ${pumpType} hydraulic circuit pilot system`;
+    knownFields.push(`Equipment type: ${equipment}`);
+    if (oem) knownFields.push(`OEM / Model: ${oem}`);
+    knownFields.push(pumpTypeKnown
+      ? `Pump system (user-reported): ${pumpType}`
+      : `Pump system: NOT SPECIFIED by user — identify from the schematic's ISO symbols.`);
+    knownFields.push(pilotKnown
+      ? `Pilot circuit configuration (user-reported): ${pilotConfig}`
+      : `Pilot circuit configuration: NOT SPECIFIED by user — identify from the schematic's pilot line routing.`);
+    if (issue) knownFields.push(`Known issue / symptom: ${issue}`);
+
+    const circuitContext = knownFields.join("\n");
+
+    // Pull relevant KB chunks — only use pump type in the search if the user actually knows it
+    const kbQuestion = `${equipment} ${oem || ""} ${pumpTypeKnown ? pumpType : ""} hydraulic circuit pilot system`;
     const kbResult = await getKbContextForQuestion(kbQuestion, 4, null);
     let kbContext = "";
     const kbRefs = [];
@@ -1325,10 +1336,23 @@ app.post("/api/kb/circuit-analyze", generalLimiter, upload.single("schematic"), 
 
 Your task: analyse the hydraulic circuit and explain clearly and precisely how it works.
 
+WHEN A SCHEMATIC IMAGE IS PROVIDED, your primary job is symbol-level reading of the actual diagram — do not rely on the user's text fields for this. Specifically:
+- Count every pump symbol. For each pump, determine fixed vs. variable displacement from its ISO 1219 symbol (variable displacement pumps show a diagonal arrow through the circle; fixed displacement do not).
+- Determine whether each variable pump is load-sensing (LS), pressure-compensated, or a simple proportional/manual control, by tracing the pilot/compensator line routing back from the directional control valve(s) to the pump's control piston — not by assuming from the user's text.
+- Classify every visible line by function — main pressure/working line, return/tank line, pilot/signal line, drain line — based on standard line-weight/style conventions and where each line actually connects (pump outlet, valve ports, actuator ports, tank).
+- If the user's text fields say the pump type or pilot configuration is unknown/not specified, you MUST determine these from the image and report them as "identified from schematic" rather than leaving them blank.
+- If a component or line is genuinely ambiguous in the image (poor resolution, obscured, cut off), say so explicitly rather than guessing silently.
+
 Return ONLY a single valid JSON object. No markdown fences, no preamble, no trailing text — your entire response must be parseable JSON:
 {
   "circuitName": "Short descriptive name for this circuit",
   "explanation": "Plain-language paragraph explaining what this circuit does, why it exists, and the key design intent",
+  "pumpAnalysis": [
+    { "pumpLabel": "e.g. P1 or Main Pump", "displacementType": "Fixed | Variable", "controlType": "e.g. Load-sensing (LS) | Pressure-compensated | Manual proportional | Not determinable", "identifiedFrom": "schematic symbol | user input | not specified — assumed typical" }
+  ],
+  "lineIdentification": [
+    { "lineType": "Pressure/Working | Return | Pilot/Signal | Drain", "path": "e.g. Pump P1 outlet to DCV1 port P", "notes": "Anything notable about this line's role" }
+  ],
   "pressurePath": [
     { "step": 1, "component": "Component name", "description": "What happens here and why it matters", "typicalPressure": "e.g. 250 bar or per OEM manual" }
   ],
@@ -1343,10 +1367,10 @@ Return ONLY a single valid JSON object. No markdown fences, no preamble, no trai
 }
 
 STRICT RULES:
-1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description.
-2. If no image: answer from engineering knowledge and KB context only.
+1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description. This applies even more strongly to pumpAnalysis and lineIdentification — these must reflect the actual image, not generic assumptions.
+2. If no image: answer from engineering knowledge and KB context only, and pumpAnalysis/lineIdentification should note "based on user-reported configuration, no schematic provided".
 3. Never invent specific OEM pressure values unless they appear in KB context or the user provided them. Use "per OEM manual" or "typical — verify with OEM".
-4. pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries.
+4. pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries. pumpAnalysis: one entry per distinct pump visible. lineIdentification: cover the main functional lines relevant to explaining the circuit, not every single line segment.
 5. Be concise and field-practical — no textbook padding.
 6. Copy the kbRefs array provided in the user message into your response.`;
 
@@ -1359,7 +1383,7 @@ STRICT RULES:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-5",
-        max_tokens: 3000,
+        max_tokens: 4000,
         system: systemPrompt,
         messages: [{ role: "user", content: userContentParts }]
       })
@@ -1395,6 +1419,8 @@ STRICT RULES:
       ok:            true,
       circuitName:   parsed.circuitName   || "Hydraulic Circuit",
       explanation:   parsed.explanation   || "",
+      pumpAnalysis:  parsed.pumpAnalysis  || [],
+      lineIdentification: parsed.lineIdentification || [],
       pressurePath:  parsed.pressurePath  || [],
       normalValues:  parsed.normalValues  || [],
       failureModes:  parsed.failureModes  || [],
@@ -1405,6 +1431,98 @@ STRICT RULES:
 
   } catch (e) {
     console.error("[circuit-analyze] error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// CIRCUIT FOLLOW-UP — answer a specific question about a previously-analysed
+// circuit. The browser re-sends the SAME schematic image (held in memory
+// client-side for the session, never stored server-side) plus the prior
+// analysis JSON as context, so the model doesn't have to re-derive the whole
+// circuit from scratch for every follow-up question.
+// POST /api/kb/circuit-followup
+// Body (multipart/form-data):
+//   schematic        — the same image file from the original analysis (optional but recommended)
+//   previousAnalysis — JSON string of the prior /circuit-analyze response (optional)
+//   circuitContext   — JSON string of { equipment, oem, pumpType, pilotConfig } (optional)
+//   question         — required, e.g. "How does the main hoist circuit work?"
+// ══════════════════════════════════════════════════════════════════════════
+app.post("/api/kb/circuit-followup", generalLimiter, upload.single("schematic"), async (req, res) => {
+  try {
+    const { question, previousAnalysis, circuitContext } = req.body;
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: "question is required" });
+    }
+
+    let contextParts = [];
+    if (circuitContext) {
+      try {
+        const ctx = JSON.parse(circuitContext);
+        contextParts.push(`Original circuit context: ${JSON.stringify(ctx)}`);
+      } catch { /* ignore malformed context, not fatal */ }
+    }
+    if (previousAnalysis) {
+      try {
+        const prev = JSON.parse(previousAnalysis);
+        contextParts.push(`Prior analysis of this same circuit (for consistency — refer back to this rather than re-deriving from scratch unless the image contradicts it):\n${JSON.stringify(prev, null, 2).substring(0, 3000)}`);
+      } catch { /* ignore malformed prior analysis */ }
+    }
+
+    const userContentParts = [];
+    if (req.file) {
+      const allowed = ["image/png","image/jpeg","image/jpg","image/webp"];
+      if (!allowed.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: "Schematic must be PNG, JPG, or WEBP." });
+      }
+      if (req.file.size > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "Schematic image must be under 5 MB" });
+      }
+      const mediaType = req.file.mimetype === "image/jpg" ? "image/jpeg" : req.file.mimetype;
+      userContentParts.push({
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: req.file.buffer.toString("base64") }
+      });
+    }
+    userContentParts.push({
+      type: "text",
+      text: `${contextParts.join("\n\n")}\n\nQuestion about this specific circuit: ${question.trim()}\n\nAnswer directly and specifically about THIS circuit — trace the actual components and lines relevant to the question. If the question asks about a mode/function not clearly shown in the image or prior analysis, say so rather than guessing.`
+    });
+
+    const followupSystemPrompt = `You are HydroMind AI, a senior marine and offshore hydraulic systems engineer. You previously analysed a hydraulic schematic for this user. They now have a specific follow-up question about that same circuit.
+
+Answer in plain, field-practical language — not JSON, just a clear direct answer. Reference specific components, valves, and line paths from the schematic/prior analysis where relevant. If the question involves a mode change (e.g. switching from normal to man-lift operation), trace exactly which valve/pilot signal changes and what that does to flow/pressure. If something isn't determinable from what you have, say so plainly rather than inventing detail. Keep it focused — answer the question asked, don't repeat the full circuit walkthrough unless asked to.`;
+
+    const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1500,
+        system: followupSystemPrompt,
+        messages: [{ role: "user", content: userContentParts }]
+      })
+    });
+
+    const claudeData = await claudeResp.json();
+    if (!claudeResp.ok) {
+      console.error("[circuit-followup] Claude error:", JSON.stringify(claudeData));
+      return res.status(502).json({ error: "AI service error — please retry" });
+    }
+
+    const answer = (claudeData.content || [])
+      .filter(b => b.type === "text")
+      .map(b => b.text)
+      .join("")
+      .trim();
+
+    return res.json({ ok: true, answer });
+  } catch (e) {
+    console.error("[circuit-followup] error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
