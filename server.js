@@ -1336,19 +1336,20 @@ app.post("/api/kb/circuit-analyze", generalLimiter, upload.single("schematic"), 
 
 Your task: analyse the hydraulic circuit and explain clearly and precisely how it works.
 
-WHEN A SCHEMATIC IMAGE IS PROVIDED, your primary job is symbol-level reading of the actual diagram — do not rely on the user's text fields for this. Specifically:
-- Count every pump symbol. For each pump, determine fixed vs. variable displacement from its ISO 1219 symbol (variable displacement pumps show a diagonal arrow through the circle; fixed displacement do not).
-- Determine whether each variable pump is load-sensing (LS), pressure-compensated, or a simple proportional/manual control, by tracing the pilot/compensator line routing back from the directional control valve(s) to the pump's control piston — not by assuming from the user's text.
-- Classify every visible line by function — main pressure/working line, return/tank line, pilot/signal line, drain line — based on standard line-weight/style conventions and where each line actually connects (pump outlet, valve ports, actuator ports, tank).
-- If the user's text fields say the pump type or pilot configuration is unknown/not specified, you MUST determine these from the image and report them as "identified from schematic" rather than leaving them blank.
+WHEN A SCHEMATIC IMAGE IS PROVIDED, your primary job is symbol-level reading of the ENTIRE diagram — every component type, not just pumps. Do not rely on the user's text fields for this. Specifically:
+- Identify EVERY component visible by its ISO 1219 symbol: pumps, directional control valves (and how many positions/ways), counterbalance valves, pressure relief/reducing valves, check valves (including pilot-operated), flow control valves, cylinders (single/double-acting, with or without counterbalance), motors, accumulators, filters, manifolds, and anything else drawn in the circuit.
+- For pumps specifically: determine fixed vs. variable displacement from the symbol (variable shows a diagonal arrow through the circle), and whether load-sensing (LS), pressure-compensated, or manual, by tracing pilot/compensator line routing — not by assuming from user text.
+- For valves: identify type, number of positions/ports, and actuation method (pilot-operated, solenoid, manual lever, spring-return) from the symbol.
+- Classify every visible line by function — main pressure/working line, return/tank line, pilot/signal line, drain line — based on standard line-weight/style conventions and where each line actually connects.
+- If the user's text fields say the pump type or pilot configuration is unknown/not specified, you MUST determine these from the image rather than leaving them blank.
 - If a component or line is genuinely ambiguous in the image (poor resolution, obscured, cut off), say so explicitly rather than guessing silently.
 
 Return ONLY a single valid JSON object. No markdown fences, no preamble, no trailing text — your entire response must be parseable JSON:
 {
   "circuitName": "Short descriptive name for this circuit",
   "explanation": "Plain-language paragraph explaining what this circuit does, why it exists, and the key design intent",
-  "pumpAnalysis": [
-    { "pumpLabel": "e.g. P1 or Main Pump", "displacementType": "Fixed | Variable", "controlType": "e.g. Load-sensing (LS) | Pressure-compensated | Manual proportional | Not determinable", "identifiedFrom": "schematic symbol | user input | not specified — assumed typical" }
+  "componentIdentification": [
+    { "label": "e.g. P1, DCV1, CBV-A, Cyl1", "componentType": "e.g. Pump, Directional Control Valve, Counterbalance Valve, Pressure Relief Valve, Check Valve, Cylinder, Motor, Accumulator, Filter", "details": "Key identifying details from the symbol — e.g. for a pump: 'Variable displacement, LS control'; for a DCV: '4/3-way, spring-centered, pilot-operated'; for a cylinder: 'Double-acting with integral counterbalance valve'", "identifiedFrom": "schematic symbol | user input | not specified — assumed typical" }
   ],
   "lineIdentification": [
     { "lineType": "Pressure/Working | Return | Pilot/Signal | Drain", "path": "e.g. Pump P1 outlet to DCV1 port P", "notes": "Anything notable about this line's role" }
@@ -1367,10 +1368,10 @@ Return ONLY a single valid JSON object. No markdown fences, no preamble, no trai
 }
 
 STRICT RULES:
-1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description. This applies even more strongly to pumpAnalysis and lineIdentification — these must reflect the actual image, not generic assumptions.
-2. If no image: answer from engineering knowledge and KB context only, and pumpAnalysis/lineIdentification should note "based on user-reported configuration, no schematic provided".
+1. If a schematic image is provided: identify ACTUAL components visible, trace REAL flow paths. If a component is unclear in the image, say so in the description. This applies even more strongly to componentIdentification and lineIdentification — these must reflect the actual image, not generic assumptions, and must cover ALL component types present, not just pumps.
+2. If no image: answer from engineering knowledge and KB context only, and componentIdentification/lineIdentification should note "based on user-reported configuration, no schematic provided".
 3. Never invent specific OEM pressure values unless they appear in KB context or the user provided them. Use "per OEM manual" or "typical — verify with OEM".
-4. pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries. pumpAnalysis: one entry per distinct pump visible. lineIdentification: cover the main functional lines relevant to explaining the circuit, not every single line segment.
+4. pressurePath: 3-7 steps. normalValues: 3-6 entries. failureModes: 2-5 entries. componentIdentification: one entry per distinct component visible in the schematic — pumps, valves, cylinders, motors, accumulators, filters, everything. lineIdentification: cover the main functional lines relevant to explaining the circuit, not every single line segment.
 5. Be concise and field-practical — no textbook padding.
 6. Copy the kbRefs array provided in the user message into your response.`;
 
@@ -1419,7 +1420,8 @@ STRICT RULES:
       ok:            true,
       circuitName:   parsed.circuitName   || "Hydraulic Circuit",
       explanation:   parsed.explanation   || "",
-      pumpAnalysis:  parsed.pumpAnalysis  || [],
+      pumpAnalysis:  parsed.componentIdentification || [],
+      componentIdentification: parsed.componentIdentification || [],
       lineIdentification: parsed.lineIdentification || [],
       pressurePath:  parsed.pressurePath  || [],
       normalValues:  parsed.normalValues  || [],
