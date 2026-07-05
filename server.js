@@ -1384,7 +1384,7 @@ STRICT RULES:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-5",
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: systemPrompt,
         messages: [{ role: "user", content: userContentParts }]
       })
@@ -1401,6 +1401,17 @@ STRICT RULES:
       .map(b => b.text)
       .join("")
       .trim();
+
+    // Detect truncation BEFORE attempting to parse — this is the real cause
+    // of most "unparseable response" errors on complex circuits with many
+    // components: the response hit max_tokens and was cut off mid-JSON.
+    if (claudeData.stop_reason === "max_tokens") {
+      console.error("[circuit-analyze] Response truncated at max_tokens. Raw length:", rawText.length);
+      return res.status(502).json({
+        error: "This circuit has more components than could fit in one response. Try adding a specific 'Known Issue' to focus the analysis, or simplify Additional Notes, then retry."
+      });
+    }
+
     // Strip any accidental markdown fences
     rawText = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
     // If preamble before JSON, extract from first { to last }
@@ -1412,7 +1423,7 @@ STRICT RULES:
     try {
       parsed = JSON.parse(rawText);
     } catch (parseErr) {
-      console.error("[circuit-analyze] JSON parse error:", parseErr.message, rawText.substring(0, 300));
+      console.error("[circuit-analyze] JSON parse error:", parseErr.message, "stop_reason:", claudeData.stop_reason, "raw length:", rawText.length, rawText.substring(0, 300));
       return res.status(502).json({ error: "AI returned unparseable response — please retry", raw: rawText.substring(0, 300) });
     }
 
