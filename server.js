@@ -8,7 +8,7 @@ const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
-const { helmetMiddleware, chatLimiter, authLimiter, kbSearchLimiter, generalLimiter, validateChatRequest, validateAuthRequest, validateKBChatRequest, safeError, enforceWebhookSecret, requestLogger } = require("./security");
+const { helmetMiddleware, chatLimiter, authLimiter, kbSearchLimiter, generalLimiter, validateChatRequest, validateAuthRequest, validateKBChatRequest, safeError, enforceWebhookSecret, enforceRevenueCatWebhook, requestLogger } = require("./security");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -316,21 +316,34 @@ const authMiddleware = async (req, res, next) => {
 // (X-Client-Fingerprint header) — best-effort, not cryptographically robust,
 // but far better than IP alone on shared office/vessel networks.
 // ══════════════════════════════════════════════════════════════════════════
+async function getLivePlan(userId) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('is_premium, is_admin')
+    .eq('id', userId)
+    .single();
+
+  if (error || !data) return { plan: "Free", isAdmin: false };
+  if (data.is_admin) return { plan: "Admin", isAdmin: true };
+  return { plan: data.is_premium ? "Pro" : "Free", isAdmin: false };
+}
+
 const softIdentify = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (token) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.identity = { id: decoded.id || decoded.sub, type: "user" };
-      // isPremium is embedded in the JWT at sign-time (see /api/auth/login, /api/auth/register)
-      req.user = { id: decoded.id, email: decoded.email, isPremium: !!decoded.isPremium, plan: decoded.isPremium ? "Pro" : "Free" };
+      const { plan, isAdmin } = await getLivePlan(decoded.id);
+      req.user = { id: decoded.id, email: decoded.email, isAdmin, plan };
       return next();
     } catch { /* fall through to Supabase token check */ }
     try {
       const { data, error } = await supabase.auth.getUser(token);
       if (!error && data?.user) {
         req.identity = { id: data.user.id, type: "user" };
-        req.user = { id: data.user.id, email: data.user.email, plan: "Free" }; // Supabase-session users default Free unless looked up separately
+        const { plan, isAdmin } = await getLivePlan(data.user.id);
+        req.user = { id: data.user.id, email: data.user.email, isAdmin, plan };
         return next();
       }
     } catch { /* fall through to anonymous */ }
@@ -339,8 +352,6 @@ const softIdentify = async (req, res, next) => {
   if (fp && typeof fp === "string" && fp.length >= 8 && fp.length <= 128) {
     req.identity = { id: fp, type: "fingerprint" };
   } else {
-    // No usable identity at all — fail closed to a shared bucket rather than
-    // letting unidentifiable traffic bypass the limit entirely.
     req.identity = { id: "unknown-no-fingerprint", type: "fingerprint" };
   }
   next();
@@ -1408,6 +1419,54 @@ app.post('/api/contact', generalLimiter, async (req, res) => {
 });
 
 // HydroMind KB Upload Webhook
+async function revenuecatWebhookHandler(req, res) {
+  try {
+    const event = req.body.event;
+    if (!event) return res.status(400).send('Missing event payload');
+
+    const appUserId = event.app_user_id;
+    const entitlements = event.entitlement_ids || [];
+    const eventType = event.type;
+
+    const grantsPremium = entitlements.includes('pro') || entitlements.includes('enterprise');
+
+    switch (eventType) {
+      case 'INITIAL_PURCHASE':
+      case 'RENEWAL':
+      case 'UNCANCELLATION':
+      case 'PRODUCT_CHANGE': {
+        const { error } = await supabase
+          .from('users')
+          .update({ is_premium: grantsPremium })
+          .eq('id', appUserId);
+        if (error) console.error('Supabase update failed (purchase event):', error);
+        break;
+      }
+      case 'CANCELLATION':
+      case 'EXPIRATION': {
+        const { error } = await supabase
+          .from('users')
+          .update({ is_premium: false })
+          .eq('id', appUserId);
+        if (error) console.error('Supabase update failed (cancellation/expiration):', error);
+        break;
+      }
+      case 'BILLING_ISSUE':
+        console.warn(`Billing issue for user ${appUserId}`);
+        break;
+      default:
+        console.log(`Unhandled RevenueCat event type: ${eventType}`);
+    }
+
+    return res.status(200).send('OK');
+  } catch (err) {
+    console.error('RevenueCat webhook error:', err);
+    return res.status(500).send('Internal error');
+  }
+}
+
+app.post('/webhook/revenuecat', enforceRevenueCatWebhook, revenuecatWebhookHandler);
+
 app.post('/webhook/kb-upload', enforceWebhookSecret, async function(req, res) {
   try {
     var record = (req.body && req.body.record) ? req.body.record : {};

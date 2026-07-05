@@ -185,6 +185,19 @@ function enforceWebhookSecret(req, res, next) {
   next();
 }
 
+function enforceRevenueCatWebhook(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!process.env.RC_WEBHOOK_SECRET) {
+    console.warn('[SECURITY] RC_WEBHOOK_SECRET not set — RevenueCat webhook disabled');
+    return res.status(503).json({ error: 'Webhook not configured' });
+  }
+  if (authHeader !== process.env.RC_WEBHOOK_SECRET) {
+    console.warn('[SECURITY] Invalid RevenueCat webhook auth from IP:', req.ip);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
 // ── 6. REQUEST LOGGER ─────────────────────────────────────────────────────
 function requestLogger(req, res, next) {
   const start = Date.now();
@@ -209,5 +222,6 @@ module.exports = {
   validateKBChatRequest,
   safeError,
   enforceWebhookSecret,
+  enforceRevenueCatWebhook,
   requestLogger,
 };
