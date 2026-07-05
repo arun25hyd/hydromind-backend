@@ -778,6 +778,70 @@ app.get("/api/kb/documents", authMiddleware, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Public, read-only KB stats/list for the knowledge_base.html page.
+// Source of truth is kb_chunks (the SKILL.md-curated KB100+ system, NOT the
+// legacy kb_documents PDF-upload table). Dedupes by kb_id across ALL rows —
+// do not filter to chunk_index=0, since ~25 documents (KB332+) don't have a
+// zero-indexed chunk and would be silently dropped.
+app.get("/api/kb/public-stats", async (req, res) => {
+  try {
+    let allRows = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from("kb_chunks")
+        .select("kb_id, doc_name, category, brand, component_type, source_file, schematic_count, added_date, tags")
+        .not("kb_id", "is", null)
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allRows = allRows.concat(data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    const chunkCounts = {};
+    allRows.forEach(r => { chunkCounts[r.kb_id] = (chunkCounts[r.kb_id] || 0) + 1; });
+
+    const seen = new Map();
+    allRows.forEach(r => { if (!seen.has(r.kb_id)) seen.set(r.kb_id, r); });
+    const entries = [...seen.values()];
+
+    const categories = {};
+    entries.forEach(e => {
+      const cat = e.component_type || e.category || "uncategorized";
+      categories[cat] = (categories[cat] || 0) + 1;
+    });
+    const brands = new Set(entries.map(e => e.brand).filter(Boolean));
+
+    res.json({
+      entries: entries
+        .sort((a, b) => parseInt(a.kb_id.replace("KB","")) - parseInt(b.kb_id.replace("KB","")))
+        .map(e => ({
+          num: e.kb_id,
+          title: e.doc_name,
+          cat: e.component_type || e.category,
+          brand: e.brand,
+          sourceFile: e.source_file,
+          schematicCount: e.schematic_count || 0,
+          chunkCount: chunkCounts[e.kb_id] || 1,
+          addedDate: e.added_date,
+          tags: e.tags || []
+        })),
+      stats: {
+        totalDocuments: entries.length,
+        totalChunks: allRows.length,
+        categories,
+        manufacturers: brands.size
+      }
+    });
+  } catch (e) {
+    console.error("[KB public-stats]", e);
+    res.status(500).json({ error: "Failed to load knowledge base stats" });
+  }
+});
+
 // ── Get a single document's processing status (for upload-progress polling)
 app.get("/api/kb/documents/:id/status", authMiddleware, async (req, res) => {
   try {
