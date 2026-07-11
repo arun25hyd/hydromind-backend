@@ -258,17 +258,24 @@ async function refreshPaddleIpAllowlist() {
   }
 }
 
+// NOTE: Paddle's live webhook deliveries are routed through Cloudflare's edge
+// network (confirmed 2026-07-11 — a rejected delivery came from 172.71.124.225,
+// a Cloudflare-owned IP, not one of Paddle's documented static IPs). Cloudflare's
+// ranges are too broad/shared to allowlist meaningfully without either blocking
+// legitimate Paddle traffic or defeating the purpose of an IP check. This check
+// is now advisory-only (logs a warning, never blocks) — the HMAC-SHA256
+// signature check in enforcePaddleWebhook below is the real, sufficient
+// security gate, exactly as Paddle's own docs describe it.
 function enforcePaddleIpAllowlist(req, res, next) {
   if (!paddleIpFetchedOnce) {
-    console.warn('[SECURITY] Paddle IP allowlist not yet loaded — rejecting webhook from IP:', req.ip);
-    return res.status(503).json({ error: 'Webhook not configured' });
+    console.warn('[SECURITY] Paddle IP allowlist not yet loaded (informational only) — IP:', req.ip);
+    return next();
   }
   const ip = String(req.ip || '').replace(/^::ffff:/, ''); // normalise IPv4-mapped IPv6
   const staticList = PADDLE_STATIC_WEBHOOK_IPS[process.env.PADDLE_ENV === 'live' ? 'live' : 'sandbox'];
   const allowed = staticList.includes(ip) || paddleIpCidrs.some(cidr => ipv4InCidr(ip, cidr));
   if (!allowed) {
-    console.warn('[SECURITY] Rejected Paddle webhook from disallowed IP:', ip);
-    return res.status(403).json({ error: 'Forbidden' });
+    console.warn('[SECURITY] Paddle webhook from IP outside known allowlist (allowed through — signature check is the real gate):', ip);
   }
   next();
 }
