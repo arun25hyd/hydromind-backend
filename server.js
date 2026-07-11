@@ -1861,11 +1861,19 @@ async function paddleWebhookHandler(req, res) {
 
 app.post('/webhook/paddle', enforcePaddleIpAllowlist, enforcePaddleWebhook, paddleWebhookHandler);
 
+// Client-side token for Paddle.js — safe to expose publicly (it's designed
+// to be embedded in frontend JS), served from env so pricing.html never has
+// to hardcode a sandbox/live value directly in static HTML.
+app.get('/api/paddle/client-token', (req, res) => {
+  if (!process.env.PADDLE_CLIENT_TOKEN) return res.status(503).json({ error: 'Paddle client token not configured' });
+  res.json({ token: process.env.PADDLE_CLIENT_TOKEN, environment: process.env.PADDLE_ENV === 'live' ? 'live' : 'sandbox' });
+});
+
 // ── Self-serve subscription management (login-modal panel) ─────────────────
 app.get('/api/subscription/status', authMiddleware, async (req, res) => {
   try {
     const { data: user, error } = await supabase.from('users')
-      .select('entitlement, subscription_status, current_billing_period_ends_at, paddle_subscription_id')
+      .select('entitlement, subscription_status, current_billing_period_ends_at, paddle_subscription_id, paddle_customer_id')
       .eq('id', req.user.id).single();
     if (error || !user) return res.status(404).json({ error: 'User not found' });
     res.json({
@@ -1873,6 +1881,7 @@ app.get('/api/subscription/status', authMiddleware, async (req, res) => {
       plan: PADDLE_ENTITLEMENT_LABELS[user.entitlement] || null,
       status: user.subscription_status || null,
       renewsAt: user.current_billing_period_ends_at || null,
+      paddleCustomerId: user.paddle_customer_id || null,
       canCancel: user.subscription_status === 'active' && !!user.paddle_subscription_id,
     });
   } catch (e) { safeError(res, e); }
