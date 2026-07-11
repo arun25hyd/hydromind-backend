@@ -5,6 +5,8 @@
 
 const rateLimit = require('express-rate-limit');
 const helmet   = require('helmet');
+const crypto   = require('crypto');
+const fetch    = require('node-fetch');
 
 // ── 1. HELMET — HTTP Security Headers ────────────────────────────────────
 // Prevents XSS, clickjacking, MIME sniffing, and other HTTP attacks
@@ -198,6 +200,116 @@ function enforceRevenueCatWebhook(req, res, next) {
   next();
 }
 
+// ── 5B. PADDLE WEBHOOK SECURITY ───────────────────────────────────────────
+// Paddle webhooks are verified two independent ways, both required:
+//   1. IP allowlist — request must originate from a Paddle-published IP.
+//      Source of truth is https://api.paddle.com/ips (data.ipv4_cidrs) —
+//      fetched at startup and refreshed periodically. Never hard-coded.
+//   2. HMAC-SHA256 signature over the raw request body, keyed by the
+//      notification destination's signing secret (Paddle-Signature header).
+//      Requires the raw body — see express.json({ verify }) in server.js.
+
+let paddleIpCidrs = [];
+let paddleIpFetchedOnce = false;
+
+// The dynamic https://api.paddle.com/ips fetch below does NOT reliably
+// include these — confirmed by testing (sandbox webhook deliveries were
+// rejected even with a freshly-fetched CIDR list). Paddle documents these
+// as fixed, separate IP sets for sandbox vs live webhook-sending servers:
+// https://developer.paddle.com/webhooks/about/respond-to-webhooks/
+// Kept as static /32s and always checked in addition to the dynamic list.
+const PADDLE_STATIC_WEBHOOK_IPS = {
+  sandbox: ['34.194.127.46', '54.234.237.108', '3.208.120.145', '44.226.236.210', '44.241.183.62', '100.20.172.113'],
+  live: ['34.232.58.13', '34.195.105.136', '34.237.3.244', '35.155.119.135', '52.11.166.252', '34.212.5.7'],
+};
+
+function ipv4ToLong(ip) {
+  const parts = String(ip || '').split('.').map(Number);
+  if (parts.length !== 4 || parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return null;
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function ipv4InCidr(ip, cidr) {
+  const [range, bitsStr] = String(cidr || '').split('/');
+  const bits = parseInt(bitsStr, 10);
+  const ipLong = ipv4ToLong(ip);
+  const rangeLong = ipv4ToLong(range);
+  if (ipLong === null || rangeLong === null || Number.isNaN(bits)) return false;
+  if (bits === 0) return true;
+  const mask = (0xFFFFFFFF << (32 - bits)) >>> 0;
+  return (ipLong & mask) === (rangeLong & mask);
+}
+
+// Fetches the current Paddle IP allowlist. Call once at startup and on a
+// periodic timer (see server.js). On failure, keeps serving the last known
+// good list — only blocks everything if we have never fetched successfully.
+async function refreshPaddleIpAllowlist() {
+  try {
+    const res = await fetch('https://api.paddle.com/ips');
+    if (!res.ok) throw new Error(`Paddle IP API returned ${res.status}`);
+    const json = await res.json();
+    const cidrs = json && json.data && json.data.ipv4_cidrs;
+    if (!Array.isArray(cidrs) || cidrs.length === 0) throw new Error('Empty/invalid ipv4_cidrs');
+    paddleIpCidrs = cidrs;
+    paddleIpFetchedOnce = true;
+    console.log(`[SECURITY] Paddle IP allowlist refreshed — ${cidrs.length} CIDR ranges`);
+  } catch (err) {
+    console.error('[SECURITY] Failed to refresh Paddle IP allowlist:', err.message);
+  }
+}
+
+function enforcePaddleIpAllowlist(req, res, next) {
+  if (!paddleIpFetchedOnce) {
+    console.warn('[SECURITY] Paddle IP allowlist not yet loaded — rejecting webhook from IP:', req.ip);
+    return res.status(503).json({ error: 'Webhook not configured' });
+  }
+  const ip = String(req.ip || '').replace(/^::ffff:/, ''); // normalise IPv4-mapped IPv6
+  const staticList = PADDLE_STATIC_WEBHOOK_IPS[process.env.PADDLE_ENV === 'live' ? 'live' : 'sandbox'];
+  const allowed = staticList.includes(ip) || paddleIpCidrs.some(cidr => ipv4InCidr(ip, cidr));
+  if (!allowed) {
+    console.warn('[SECURITY] Rejected Paddle webhook from disallowed IP:', ip);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+}
+
+// Verifies the Paddle-Signature header: "ts=<unix_ts>;h1=<hex_hmac>".
+// Requires req.rawBody (Buffer) to be populated by express.json's verify hook.
+function enforcePaddleWebhook(req, res, next) {
+  if (!process.env.PADDLE_WEBHOOK_SECRET) {
+    console.warn('[SECURITY] PADDLE_WEBHOOK_SECRET not set — Paddle webhook disabled');
+    return res.status(503).json({ error: 'Webhook not configured' });
+  }
+  const sigHeader = req.headers['paddle-signature'];
+  if (!sigHeader || !req.rawBody) {
+    console.warn('[SECURITY] Missing Paddle signature or raw body from IP:', req.ip);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const parts = {};
+  sigHeader.split(';').forEach(kv => {
+    const [k, v] = kv.split('=');
+    if (k && v) parts[k.trim()] = v.trim();
+  });
+  const ts = parts.ts;
+  const h1 = parts.h1;
+  if (!ts || !h1) {
+    console.warn('[SECURITY] Malformed Paddle-Signature header from IP:', req.ip);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const signedPayload = `${ts}:${req.rawBody}`;
+  const expected = crypto.createHmac('sha256', process.env.PADDLE_WEBHOOK_SECRET)
+    .update(signedPayload)
+    .digest('hex');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  const actualBuf = Buffer.from(h1, 'utf8');
+  const validSignature = expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf);
+  if (!validSignature) {
+    console.warn('[SECURITY] Invalid Paddle webhook signature from IP:', req.ip);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
 // ── 6. REQUEST LOGGER ─────────────────────────────────────────────────────
 function requestLogger(req, res, next) {
   const start = Date.now();
@@ -223,5 +335,8 @@ module.exports = {
   safeError,
   enforceWebhookSecret,
   enforceRevenueCatWebhook,
+  refreshPaddleIpAllowlist,
+  enforcePaddleIpAllowlist,
+  enforcePaddleWebhook,
   requestLogger,
 };

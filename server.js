@@ -6,9 +6,10 @@ const pdfParse = require("pdf-parse");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
+const cron = require("node-cron");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
-const { helmetMiddleware, chatLimiter, authLimiter, kbSearchLimiter, generalLimiter, validateChatRequest, validateAuthRequest, validateKBChatRequest, safeError, enforceWebhookSecret, enforceRevenueCatWebhook, requestLogger } = require("./security");
+const { helmetMiddleware, chatLimiter, authLimiter, kbSearchLimiter, generalLimiter, validateChatRequest, validateAuthRequest, validateKBChatRequest, safeError, enforceWebhookSecret, enforceRevenueCatWebhook, refreshPaddleIpAllowlist, enforcePaddleIpAllowlist, enforcePaddleWebhook, requestLogger } = require("./security");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -257,7 +258,13 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({
+  limit: "2mb",
+  // Paddle webhook signature verification (see enforcePaddleWebhook in
+  // security.js) is computed over the exact raw request bytes — stash them
+  // here so /webhook/paddle can verify without a second body parser.
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 app.use(generalLimiter);
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
@@ -282,6 +289,13 @@ setInterval(async () => {
     console.log('[keep-alive] ping failed:', e.message);
   }
 }, 10 * 60 * 1000); // every 10 minutes
+
+// ── PADDLE IP ALLOWLIST — refresh from source of truth ──────────────────────
+// https://api.paddle.com/ips is the same allowlist for sandbox and live
+// notifications. Fetch at boot, then refresh every 6 hours in case Paddle
+// rotates ranges.
+refreshPaddleIpAllowlist();
+setInterval(refreshPaddleIpAllowlist, 6 * 60 * 60 * 1000);
 
 // ══════════════════════════════════════════════════════════════════════════
 // AUTH MIDDLEWARE
@@ -1680,6 +1694,333 @@ async function revenuecatWebhookHandler(req, res) {
 }
 
 app.post('/webhook/revenuecat', enforceRevenueCatWebhook, revenuecatWebhookHandler);
+
+// ══════════════════════════════════════════════════════════════════════════
+// PADDLE — direct web checkout billing (separate/parallel to RevenueCat,
+// which is mobile-only). Sandbox-first: PADDLE_ENV controls which Paddle API
+// base URL server-to-server calls use; defaults to sandbox.
+// ══════════════════════════════════════════════════════════════════════════
+// Display labels — "Enterprise" matches the plan name already used across
+// pricing.html and the sidebar/nav plan badges (team_access is the Paddle-side
+// entitlement id; HydroMind's user-facing tier for it is "Enterprise").
+const PADDLE_ENTITLEMENT_LABELS = { pro_access: 'Pro', team_access: 'Enterprise' };
+
+function paddleApiBase() {
+  return process.env.PADDLE_ENV === 'live' ? 'https://api.paddle.com' : 'https://sandbox-api.paddle.com';
+}
+
+async function paddleApiFetch(path, options = {}) {
+  if (!process.env.PADDLE_API_KEY) throw new Error('PADDLE_API_KEY not configured');
+  const res = await fetch(`${paddleApiBase()}${path}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${process.env.PADDLE_API_KEY}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(`Paddle API ${path} returned ${res.status}`);
+    err.status = res.status;
+    err.body = json;
+    throw err;
+  }
+  return json;
+}
+
+function mapPaddlePriceIdToEntitlement(priceId) {
+  if (!priceId) return null;
+  if (priceId === process.env.PADDLE_PRICE_ID_PRO) return 'pro_access';
+  if (priceId === process.env.PADDLE_PRICE_ID_TEAM) return 'team_access';
+  return null;
+}
+
+// Transaction/subscription payloads differ slightly — normalise to a common
+// shape before writing to Supabase.
+function normalizePaddleEventData(eventType, data) {
+  const priceId = data.items && data.items[0] && data.items[0].price && data.items[0].price.id;
+  if (eventType === 'transaction.completed') {
+    return {
+      customerId: data.customer_id || null,
+      subscriptionId: data.subscription_id || null,
+      priceId,
+      status: 'active', // transaction.completed only fires once payment succeeded
+      periodEnd: null,
+    };
+  }
+  const rawStatus = data.status; // active | trialing | past_due | paused | canceled
+  return {
+    customerId: data.customer_id || null,
+    subscriptionId: data.id || null,
+    priceId,
+    status: (rawStatus === 'active' || rawStatus === 'trialing') ? 'active' : rawStatus,
+    periodEnd: (data.current_billing_period && data.current_billing_period.ends_at) || null,
+  };
+}
+
+// Matches a Paddle event back to a HydroMind user account, in order of
+// reliability: (1) custom_data.hm_user_id set when we generated the checkout
+// link ourselves, (2) a previously-linked paddle_customer_id, (3) email
+// lookup via the Paddle Customer API as a last resort.
+async function resolveHydroMindUserForPaddleEvent(data) {
+  const customerId = data.customer_id || null;
+  const customData = data.custom_data || {};
+
+  if (customData.hm_user_id) {
+    const { data: user } = await supabase.from('users')
+      .select('id, email, paddle_customer_id').eq('id', customData.hm_user_id).maybeSingle();
+    if (user) return user;
+  }
+
+  if (customerId) {
+    const { data: user } = await supabase.from('users')
+      .select('id, email, paddle_customer_id').eq('paddle_customer_id', customerId).maybeSingle();
+    if (user) return user;
+  }
+
+  if (customerId) {
+    try {
+      const customer = await paddleApiFetch(`/customers/${customerId}`);
+      const email = customer && customer.data && customer.data.email;
+      if (email) {
+        const { data: user } = await supabase.from('users')
+          .select('id, email, paddle_customer_id').eq('email', email.toLowerCase()).maybeSingle();
+        if (user) return user;
+      }
+    } catch (err) {
+      console.error('[Paddle webhook] Customer lookup failed:', err.message);
+    }
+  }
+
+  return null;
+}
+
+async function applyPaddleEntitlement(eventType, data) {
+  const user = await resolveHydroMindUserForPaddleEvent(data);
+  if (!user) {
+    console.warn('[Paddle webhook] No matching HydroMind user for customer', data.customer_id);
+    return;
+  }
+  const norm = normalizePaddleEventData(eventType, data);
+  const entitlement = mapPaddlePriceIdToEntitlement(norm.priceId);
+
+  const update = { paddle_customer_id: norm.customerId || user.paddle_customer_id };
+  if (norm.subscriptionId) update.paddle_subscription_id = norm.subscriptionId;
+  if (entitlement) update.entitlement = entitlement;
+  if (norm.status) update.subscription_status = norm.status;
+  if (norm.periodEnd) update.current_billing_period_ends_at = norm.periodEnd;
+  if (norm.status === 'active') update.is_premium = true;
+
+  const { error } = await supabase.from('users').update(update).eq('id', user.id);
+  if (error) console.error('[Paddle webhook] Supabase update failed (entitlement):', error);
+}
+
+async function applyPaddleCancellation(data) {
+  const user = await resolveHydroMindUserForPaddleEvent(data);
+  if (!user) {
+    console.warn('[Paddle webhook] No matching HydroMind user for customer', data.customer_id);
+    return;
+  }
+  const periodEnd = (data.current_billing_period && data.current_billing_period.ends_at) || null;
+  const update = { subscription_status: 'canceled' };
+  // Only overwrite the period-end if Paddle provided one on this event —
+  // never null out a previously-known date. Access must stay live until
+  // current_billing_period_ends_at; the daily cron (see trial-conversion
+  // job below) is what actually flips is_premium off once that date passes.
+  if (periodEnd) update.current_billing_period_ends_at = periodEnd;
+  const { error } = await supabase.from('users').update(update).eq('id', user.id);
+  if (error) console.error('[Paddle webhook] Supabase update failed (cancellation):', error);
+}
+
+async function paddleWebhookHandler(req, res) {
+  try {
+    const eventType = req.body && req.body.event_type;
+    const data = req.body && req.body.data;
+    if (!eventType || !data) return res.status(400).send('Missing event payload');
+
+    switch (eventType) {
+      case 'transaction.completed':
+      case 'subscription.created':
+      case 'subscription.updated':
+        await applyPaddleEntitlement(eventType, data);
+        break;
+      case 'subscription.canceled':
+        await applyPaddleCancellation(data);
+        break;
+      default:
+        console.log(`[Paddle webhook] Unhandled event type: ${eventType}`);
+    }
+
+    return res.status(200).send('OK');
+  } catch (err) {
+    console.error('Paddle webhook error:', err);
+    return res.status(500).send('Internal error');
+  }
+}
+
+app.post('/webhook/paddle', enforcePaddleIpAllowlist, enforcePaddleWebhook, paddleWebhookHandler);
+
+// ── Self-serve subscription management (login-modal panel) ─────────────────
+app.get('/api/subscription/status', authMiddleware, async (req, res) => {
+  try {
+    const { data: user, error } = await supabase.from('users')
+      .select('entitlement, subscription_status, current_billing_period_ends_at, paddle_subscription_id')
+      .eq('id', req.user.id).single();
+    if (error || !user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      hasSubscription: !!user.paddle_subscription_id,
+      plan: PADDLE_ENTITLEMENT_LABELS[user.entitlement] || null,
+      status: user.subscription_status || null,
+      renewsAt: user.current_billing_period_ends_at || null,
+      canCancel: user.subscription_status === 'active' && !!user.paddle_subscription_id,
+    });
+  } catch (e) { safeError(res, e); }
+});
+
+app.post('/api/subscription/cancel', authMiddleware, async (req, res) => {
+  try {
+    const { data: user, error } = await supabase.from('users')
+      .select('paddle_subscription_id, subscription_status')
+      .eq('id', req.user.id).single();
+    if (error || !user) return res.status(404).json({ error: 'User not found' });
+    if (!user.paddle_subscription_id) return res.status(400).json({ error: 'No active subscription found on this account.' });
+    if (user.subscription_status === 'canceled') return res.status(400).json({ error: 'Subscription is already canceled.' });
+
+    await paddleApiFetch(`/subscriptions/${user.paddle_subscription_id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ effective_from: 'next_billing_period' }),
+    });
+
+    // Entitlement state is updated by the subscription.canceled webhook only
+    // (not here) — writing from both places risks a race/conflict.
+    res.json({ success: true, message: 'Your subscription is set to cancel at the end of the current billing period. You will keep full access until then.' });
+  } catch (e) {
+    console.error('[Paddle cancel] error:', e.message, e.body || '');
+    res.status(502).json({ error: 'Could not reach Paddle to cancel your subscription. Please try again or contact support.' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// TRIAL-CONVERSION EMAIL — daily scheduled check
+// Trial start = users.created_at (registration). Trial length matches the
+// "7-Day Free Trial" already promised on pricing.html. Sends one reminder
+// 2 days out and one on the final day; each is a one-time flag so re-runs
+// never double-send.
+// ══════════════════════════════════════════════════════════════════════════
+const TRIAL_DAYS = 7;
+const TRIAL_REMINDER_DAYS_BEFORE = 2;
+const PUBLIC_SITE_URL = process.env.PUBLIC_SITE_URL || 'https://hydromindai.com';
+
+function utcDateOnly(d) {
+  const dt = new Date(d);
+  return Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate());
+}
+
+function buildPaddleCheckoutLink(user) {
+  const plan = user.trial_plan === 'team' ? 'team' : 'pro';
+  const priceId = plan === 'team' ? process.env.PADDLE_PRICE_ID_TEAM : process.env.PADDLE_PRICE_ID_PRO;
+  const url = new URL('/pricing.html', PUBLIC_SITE_URL);
+  if (priceId) url.searchParams.set('checkout', priceId);
+  url.searchParams.set('uid', user.id);
+  url.searchParams.set('email', user.email);
+  url.searchParams.set('plan', plan);
+  return url.toString();
+}
+
+async function sendTrialEndingEmail(user, daysUntilEnd) {
+  const checkoutUrl = buildPaddleCheckoutLink(user);
+  const plan = user.trial_plan === 'team' ? 'Enterprise' : 'Pro'; // display label matches pricing.html tier names
+  const price = user.trial_plan === 'team' ? '$299/mo' : '$29/mo';
+  const isToday = daysUntilEnd === 0;
+  const subject = isToday ? 'Your HydroMind trial ends today' : `Your HydroMind trial ends in ${daysUntilEnd} days`;
+  const firstName = (user.name || '').split(' ')[0] || 'there';
+
+  await sendEmail({
+    to: user.email,
+    subject,
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#060d11;color:#e8f4ff;padding:32px;max-width:560px;margin:0 auto;border:1px solid #1b2d40;border-radius:10px;">
+        <h2 style="color:#22d3ee;margin:0 0 20px;">HydroMind<span style="color:#fff">.AI</span></h2>
+        <p style="font-size:15px;line-height:1.6;">Hi ${firstName},</p>
+        <p style="font-size:15px;line-height:1.6;">
+          ${isToday ? `Your free trial of HydroMind ${plan} ends <strong>today</strong>.` : `Your free trial of HydroMind ${plan} ends in <strong>${daysUntilEnd} days</strong>.`}
+        </p>
+        <p style="font-size:15px;line-height:1.6;">Add a payment method now to keep unlimited AI queries, full KB access, and every advisor mode without interruption. You won't be charged until your trial actually ends.</p>
+        <div style="margin:24px 0;padding:16px;background:rgba(34,211,238,0.05);border:1px solid rgba(34,211,238,0.15);border-radius:6px;text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:#22d3ee;">${plan} — ${price}</div>
+          <div style="font-size:12px;color:#7d909c;margin-top:4px;">Cancel anytime, no lock-in</div>
+        </div>
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${checkoutUrl}" style="display:inline-block;background:#22d3ee;color:#04121a;font-weight:700;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;">Continue to Checkout →</a>
+        </div>
+        <p style="font-size:12px;color:#4a5568;line-height:1.6;">If you do nothing, your account simply reverts to the Free plan — no charge, no action needed.</p>
+        <p style="margin-top:16px;font-size:11px;color:#4a5568;">HydroMind.AI — support@hydromindai.com</p>
+      </div>
+    `
+  });
+}
+
+async function runTrialConversionCheck() {
+  console.log('[trial-cron] Checking trial-ending users...');
+  try {
+    const { data: candidates, error } = await supabase.from('users')
+      .select('id, name, email, created_at, trial_plan, trial_reminder_2d_sent, trial_reminder_0d_sent')
+      .is('subscription_status', null)
+      .eq('is_premium', false);
+    if (error) { console.error('[trial-cron] Supabase query failed:', error); return; }
+
+    const todayUtc = utcDateOnly(new Date());
+    for (const user of candidates || []) {
+      if (!user.email || !user.created_at) continue;
+      const trialEndUtc = utcDateOnly(user.created_at) + TRIAL_DAYS * 86400000;
+      const daysUntilEnd = Math.round((trialEndUtc - todayUtc) / 86400000);
+
+      let flagCol = null;
+      if (daysUntilEnd === TRIAL_REMINDER_DAYS_BEFORE && !user.trial_reminder_2d_sent) flagCol = 'trial_reminder_2d_sent';
+      else if (daysUntilEnd === 0 && !user.trial_reminder_0d_sent) flagCol = 'trial_reminder_0d_sent';
+      if (!flagCol) continue;
+
+      try {
+        await sendTrialEndingEmail(user, daysUntilEnd);
+        await supabase.from('users').update({ [flagCol]: true }).eq('id', user.id);
+        console.log(`[trial-cron] Sent trial-ending reminder (${flagCol}) to ${user.email}`);
+      } catch (err) {
+        console.error(`[trial-cron] Failed to email ${user.email}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[trial-cron] Unexpected error:', err.message);
+  }
+}
+
+// Companion sweep: once a canceled Paddle subscription's paid-through date
+// has actually passed, drop is_premium. Runs in the same daily job since
+// the subscription.canceled webhook (see above) deliberately leaves access
+// on — this is the only place that turns it off.
+async function expireLapsedCancellations() {
+  try {
+    const { data: lapsed, error } = await supabase.from('users')
+      .select('id')
+      .eq('subscription_status', 'canceled')
+      .eq('is_premium', true)
+      .lte('current_billing_period_ends_at', new Date().toISOString());
+    if (error) { console.error('[billing-cron] Lapsed-cancellation query failed:', error); return; }
+    for (const user of lapsed || []) {
+      const { error: updErr } = await supabase.from('users').update({ is_premium: false }).eq('id', user.id);
+      if (updErr) console.error(`[billing-cron] Failed to expire access for user ${user.id}:`, updErr);
+      else console.log(`[billing-cron] Expired lapsed-cancellation access for user ${user.id}`);
+    }
+  } catch (err) {
+    console.error('[billing-cron] Unexpected error:', err.message);
+  }
+}
+
+// Daily at 09:00 UTC — lightweight, single query per run against a small table.
+cron.schedule('0 9 * * *', () => {
+  runTrialConversionCheck();
+  expireLapsedCancellations();
+}, { timezone: 'UTC' });
 
 app.post('/webhook/kb-upload', enforceWebhookSecret, async function(req, res) {
   try {
