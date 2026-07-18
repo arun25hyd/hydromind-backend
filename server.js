@@ -56,6 +56,17 @@ const supabase = createClient(
   }
 );
 
+// ── MOBILE AUTH CLIENT — separate Supabase project ──────────────────────────
+// The Android app's real users (25 accounts) live in a DIFFERENT Supabase
+// project than the KB data above. This client exists solely to verify mobile
+// Supabase session tokens (authMiddleware Path 2). Never use this client for
+// KB reads/writes — those stay on the `supabase` client above.
+const supabaseMobileAuth = createClient(
+  process.env.MOBILE_SUPABASE_URL,
+  process.env.MOBILE_SUPABASE_ANON_KEY,
+  { auth: { persistSession: false } }
+);
+
 // ── KB QUERY CACHE (in-memory LRU) ─────────────────────────────────────────
 // Reduces Supabase egress/API calls significantly.
 // TTL: 10 minutes. Max: 200 entries. Keyed by normalised question string.
@@ -312,9 +323,11 @@ const authMiddleware = async (req, res, next) => {
     // fall through to Path 2
   }
 
-  // Path 2: Supabase access token (mobile app — Supabase Auth session)
+  // Path 2: Supabase access token (mobile app — Supabase Auth session).
+  // Mobile users live in a separate Supabase project from the KB data, so
+  // this MUST verify against supabaseMobileAuth, not the KB `supabase` client.
   try {
-    const { data, error } = await supabase.auth.getUser(token);
+    const { data, error } = await supabaseMobileAuth.auth.getUser(token);
     if (error || !data?.user) throw error || new Error("No Supabase user");
     req.user = { id: data.user.id, email: data.user.email, source: "supabase" };
     return next();
