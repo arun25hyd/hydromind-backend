@@ -2231,4 +2231,3 @@ module.exports = {
   sanitizeGenericKbText,
   scoreKbChunkRelevance,
 };
-Privacy-friendly, first-party funnel counters
