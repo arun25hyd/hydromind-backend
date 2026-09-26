@@ -281,6 +281,52 @@ app.use(generalLimiter);
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.json({ status: "HydroMind AI v5.2 Online", kb: "Supabase Vector DB Active", build: "text-only-v7.0" }));
 
+// Privacy-friendly, first-party funnel counters. These events contain no
+// email address, user id, IP-derived identifier, or free-form text. Reuse the
+// existing daily counter table so conversion measurement works without a
+// third-party tracker or an additional database migration.
+const FUNNEL_EVENTS = new Set([
+  'pricing_view',
+  'pro_cta_clicked',
+  'auth_required',
+  'auth_completed',
+  'checkout_opened',
+  'checkout_completed',
+  'checkout_closed',
+  'checkout_error',
+]);
+
+app.post('/api/analytics/event', async (req, res) => {
+  const event = String(req.body?.event || '').trim();
+  if (!FUNNEL_EVENTS.has(event)) return res.status(400).json({ error: 'Unsupported event' });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const identifier = `analytics:${event}`;
+  try {
+    const { data: existing, error: readError } = await supabase
+      .from('query_usage')
+      .select('query_count')
+      .eq('identifier', identifier)
+      .eq('usage_date', today)
+      .maybeSingle();
+    if (readError) throw readError;
+
+    const { error: writeError } = await supabase.from('query_usage').upsert({
+      identifier,
+      identifier_type: 'analytics',
+      usage_date: today,
+      query_count: (existing?.query_count || 0) + 1,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'identifier,usage_date' });
+    if (writeError) throw writeError;
+  } catch (err) {
+    // Keep the checkout path resilient. Render logs still retain a countable
+    // event if Supabase is temporarily unavailable.
+    console.warn('[funnel]', event, 'persistence failed:', err.message);
+  }
+  return res.status(202).json({ accepted: true });
+});
+
 // ── KB CACHE STATS (admin — protected by webhook secret) ──────────────────
 app.get("/api/cache/stats", enforceWebhookSecret, (req, res) => {
   res.json({ entries: KB_CACHE.size, maxEntries: KB_CACHE_MAX, ttlMs: KB_CACHE_TTL });
@@ -1879,7 +1925,16 @@ app.post('/webhook/paddle', enforcePaddleIpAllowlist, enforcePaddleWebhook, padd
 // to hardcode a sandbox/live value directly in static HTML.
 app.get('/api/paddle/client-token', (req, res) => {
   if (!process.env.PADDLE_CLIENT_TOKEN) return res.status(503).json({ error: 'Paddle client token not configured' });
-  res.json({ token: process.env.PADDLE_CLIENT_TOKEN, environment: process.env.PADDLE_ENV === 'live' ? 'live' : 'sandbox' });
+  res.json({
+    token: process.env.PADDLE_CLIENT_TOKEN,
+    environment: process.env.PADDLE_ENV === 'live' ? 'live' : 'sandbox',
+    // Paddle price ids are public catalog identifiers and are required by
+    // Paddle.js to open checkout. API keys and webhook secrets remain server-only.
+    prices: {
+      pro: process.env.PADDLE_PRICE_ID_PRO || null,
+      enterprise: process.env.PADDLE_PRICE_ID_TEAM || null,
+    },
+  });
 });
 
 // ── Self-serve subscription management (login-modal panel) ─────────────────
@@ -1924,11 +1979,10 @@ app.post('/api/subscription/cancel', authMiddleware, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// TRIAL-CONVERSION EMAIL — daily scheduled check
-// Trial start = users.created_at (registration). Trial length matches the
-// "7-Day Free Trial" already promised on pricing.html. Sends one reminder
-// 2 days out and one on the final day; each is a one-time flag so re-runs
-// never double-send.
+// FREE-TO-PRO CONVERSION EMAIL — daily scheduled check
+// New accounts are Free accounts, not time-limited Pro trials. Send two
+// onboarding upgrade reminders during the first week without implying that
+// paid access was granted or that a charge will happen automatically.
 // ══════════════════════════════════════════════════════════════════════════
 const TRIAL_DAYS = 7;
 const TRIAL_REMINDER_DAYS_BEFORE = 2;
@@ -1955,7 +2009,7 @@ async function sendTrialEndingEmail(user, daysUntilEnd) {
   const plan = user.trial_plan === 'team' ? 'Enterprise' : 'Pro'; // display label matches pricing.html tier names
   const price = user.trial_plan === 'team' ? '$299/mo' : '$29/mo';
   const isToday = daysUntilEnd === 0;
-  const subject = isToday ? 'Your HydroMind trial ends today' : `Your HydroMind trial ends in ${daysUntilEnd} days`;
+  const subject = isToday ? 'Ready to unlock HydroMind Pro?' : 'Get more from HydroMind with Pro';
   const firstName = (user.name || '').split(' ')[0] || 'there';
 
   await sendEmail({
@@ -1966,17 +2020,17 @@ async function sendTrialEndingEmail(user, daysUntilEnd) {
         <h2 style="color:#22d3ee;margin:0 0 20px;">HydroMind<span style="color:#fff">.AI</span></h2>
         <p style="font-size:15px;line-height:1.6;">Hi ${firstName},</p>
         <p style="font-size:15px;line-height:1.6;">
-          ${isToday ? `Your free trial of HydroMind ${plan} ends <strong>today</strong>.` : `Your free trial of HydroMind ${plan} ends in <strong>${daysUntilEnd} days</strong>.`}
+          ${isToday ? `You have had a week to explore HydroMind on the <strong>Free plan</strong>.` : `Thanks for exploring HydroMind on the <strong>Free plan</strong>.`}
         </p>
-        <p style="font-size:15px;line-height:1.6;">Add a payment method now to keep unlimited AI queries, full KB access, and every advisor mode without interruption. You won't be charged until your trial actually ends.</p>
+        <p style="font-size:15px;line-height:1.6;">Upgrade when you are ready for unlimited AI queries, full knowledge-base access, and every advisor mode. You will see the complete price and billing terms before confirming payment.</p>
         <div style="margin:24px 0;padding:16px;background:rgba(34,211,238,0.05);border:1px solid rgba(34,211,238,0.15);border-radius:6px;text-align:center;">
           <div style="font-size:20px;font-weight:800;color:#22d3ee;">${plan} — ${price}</div>
           <div style="font-size:12px;color:#7d909c;margin-top:4px;">Cancel anytime, no lock-in</div>
         </div>
         <div style="text-align:center;margin:28px 0;">
-          <a href="${checkoutUrl}" style="display:inline-block;background:#22d3ee;color:#04121a;font-weight:700;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;">Continue to Checkout →</a>
+          <a href="${checkoutUrl}" style="display:inline-block;background:#22d3ee;color:#04121a;font-weight:700;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;">View Pro Checkout →</a>
         </div>
-        <p style="font-size:12px;color:#4a5568;line-height:1.6;">If you do nothing, your account simply reverts to the Free plan — no charge, no action needed.</p>
+        <p style="font-size:12px;color:#4a5568;line-height:1.6;">Your Free account remains available if you do not upgrade. There is no automatic charge.</p>
         <p style="margin-top:16px;font-size:11px;color:#4a5568;">HydroMind.AI — support@hydromindai.com</p>
       </div>
     `
@@ -2177,3 +2231,4 @@ module.exports = {
   sanitizeGenericKbText,
   scoreKbChunkRelevance,
 };
+Privacy-friendly, first-party funnel counters
